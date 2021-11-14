@@ -7,7 +7,8 @@
          "definition.rkt"
          "expression.rkt"
          "static-info.rkt"
-         "dot-provider-key.rkt")
+         "dot-provider-key.rkt"
+         "racket-class.rkt")
 
 (provide |.|
          use_static_dot
@@ -108,8 +109,8 @@
                            "no such field"
                            "in value" v))
   (cond
+    [(object? v) (object-dot-lookup v field fail)]
     [(not ht) (fail)]
     [(hash-ref ht field #f) => (lambda (acc) (acc v))]
     [else (fail)]))
 
-   
