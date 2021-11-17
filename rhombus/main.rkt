@@ -35,8 +35,7 @@
         "private/quasiquote.rkt"
         "private/keyword.rkt"
         "private/symbol.rkt"
-        "private/values.rkt"
-        "private/racket-class.rkt")
+        "private/values.rkt")
 
 (module reader syntax/module-reader
   #:language 'rhombus
