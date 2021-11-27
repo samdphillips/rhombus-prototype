@@ -9,7 +9,8 @@
                      enforest/name-parse
                      enforest/proc-name
                      "srcloc.rkt"
-                     "name-path-op.rkt")
+                     "name-path-op.rkt"
+                     "introducer.rkt")
          "name-root-ref.rkt"
          (submod "module-path.rkt" for-import-export)
          "declaration.rkt"
@@ -35,7 +36,12 @@
                     only
                     except
                     expose
-                    for_meta))
+                    for_meta
+                    for_label))
+
+(module+ for-meta
+  (provide (for-syntax import-modifier
+                       in-import-space)))
 
 (begin-for-syntax
   (property import-prefix-operator prefix-operator)
@@ -43,7 +49,7 @@
 
   (property import-modifier transformer)
 
-  (define in-import-space (make-interned-syntax-introducer 'rhombus/import))
+  (define in-import-space (make-interned-syntax-introducer/add 'rhombus/import))
 
   (define (check-import-result form proc)
     (unless (syntax? form) (raise-result-error (proc-name proc) "syntax?" form))
@@ -290,11 +296,17 @@
   (import-modifier
    (lambda (req stx)
      (syntax-parse stx
-       #:datum-literals (block group)
        [(form phase)
         (define ph (syntax-e #'phase))
-        (unless (or (not ph) (exact-integer? ph))
-          (raise-syntax-error #f "not a valid phase" stx #'p<hase))
+        (unless (exact-integer? ph)
+          (raise-syntax-error #f "not a valid phase" stx #'phase))
         (datum->syntax req (list (syntax/loc #'form for-meta) #'phase req) req)]
        [(form) 
         (datum->syntax req (list (syntax/loc #'form for-meta) #'1 req) req)]))))
+
+(define-import-syntax for_label
+  (import-modifier
+   (lambda (req stx)
+     (syntax-parse stx
+       [(form) 
+        (datum->syntax req (list (syntax/loc #'form for-meta) #f req) req)]))))

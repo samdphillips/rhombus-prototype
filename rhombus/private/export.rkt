@@ -12,7 +12,8 @@
                      enforest/proc-name
                      enforest/syntax-local
                      "name-path-op.rkt"
-                     "srcloc.rkt")
+                     "srcloc.rkt"
+                     "introducer.rkt")
          "name-root-ref.rkt"
          "declaration.rkt"
          (submod "module-path.rkt" for-import-export))
@@ -22,6 +23,8 @@
          (for-space rhombus/export
                     rename
                     except
+                    for_meta
+                    for_label
                     names
                     all_from
                     all_in
@@ -34,7 +37,7 @@
 
   (property export-modifier transformer)
 
-  (define in-export-space (make-interned-syntax-introducer 'rhombus/export))
+  (define in-export-space (make-interned-syntax-introducer/add 'rhombus/export))
 
   (define (check-export-result form proc)
     (unless (syntax? form) (raise-result-error (proc-name proc) "syntax?" form))
@@ -165,6 +168,25 @@
        #:datum-literals (block)
        [(_ (block e::export ...))
         #`(except-out #,ex e.parsed ...)]))))
+     
+(define-export-syntax for_meta
+  (export-modifier
+   (lambda (ex stx)
+     (syntax-parse stx
+       [(form phase)
+        (define ph (syntax-e #'phase))
+        (unless (exact-integer? ph)
+          (raise-syntax-error #f "not a valid phase" stx #'phase))
+        (datum->syntax ex (list (syntax/loc #'form for-meta) #'phase ex) ex)]
+       [(form) 
+        (datum->syntax ex (list (syntax/loc #'form for-meta) #'1 ex) ex)]))))
+
+(define-export-syntax for_label
+  (export-modifier
+   (lambda (ex stx)
+     (syntax-parse stx
+       [(form) 
+        (datum->syntax ex (list (syntax/loc #'form for-meta) #f ex) ex)]))))
      
 (define-export-syntax names
   (export-prefix-operator

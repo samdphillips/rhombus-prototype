@@ -343,7 +343,8 @@
            (when (group-state-comma-time? sg)
              (fail t (format "missing comma before new group (~a)"
                              "within parentheses, brackets, or braces")))
-           (case (token-name t)
+           (case (and (not (eq? (group-state-block-mode sg) 'start))
+                      (token-name t))
              [(bar-operator)
               (define line (token-line t))
               (cond
@@ -639,7 +640,7 @@
              (parse-groups next-l (make-group-state #:count? (state-count? s)
                                                     #:closer (make-closer-expected closer t)
                                                     #:paren-immed? #t
-                                                    #:block-mode (if (eq? tag 'at) 'no #f)
+                                                    #:block-mode (if (eq? tag 'at) 'no 'start)
                                                     #:column sub-column
                                                     #:last-line last-line
                                                     #:delta delta
@@ -659,7 +660,7 @@
                                             [at-mode new-at-mode])))
            (define new-g (at-adjust
                           (cons (add-raw-to-prefix
-                                 t pre-raw #:tail (append (reverse suffix-raw) group-tail-raw)
+                                 t pre-raw #:tail group-tail-raw #:tail-suffix (reverse suffix-raw)
                                  (add-span-srcloc
                                   t end-t
                                   (cons tag gs)))
@@ -825,7 +826,7 @@
              delta
              group-commenting
              raw)]))
-      
+
 (define (tag-as-block gs)
   (cond
     [(and (pair? gs)
@@ -1373,22 +1374,12 @@
     [else (cons (move-pre-raw* from-stx (car to))
                 (cdr to))]))
 
-(define (move-post-raw from-stx to)
-  (define post-raw (and (syntax? from-stx)
-                        (syntax-raw-tail-property from-stx)))
-  (cond
-    [post-raw
-     (define a (datum->syntax* #f (car to)))
-     (cons (syntax-raw-tail-property a (raw-cons (or (syntax-raw-tail-property a) '())
-                                                 post-raw))
-           (cdr to))]
-    [else to]))
-
 (define (move-post-raw-to-prefix from-stx to)
   (define post-raw (and (syntax? from-stx)
-                        (syntax-raw-tail-property from-stx)))
+                        (raw-cons (or (syntax-raw-tail-property from-stx) null)
+                                  (or (syntax-raw-tail-suffix-property from-stx) null))))
   (cond
-    [post-raw
+    [(and post-raw (not (null? post-raw)))
      (define a (datum->syntax* #f (car to)))
      (cons (syntax-raw-prefix-property a (raw-cons post-raw
                                                    (or (syntax-raw-prefix-property a) '())))
@@ -1401,12 +1392,16 @@
         (token-raw raw-t)
         raw-t)))
 
-(define (add-raw-to-prefix t pre-raw l #:tail [post-raw #f])
-  (cons (let ([stx (record-raw (car l) t pre-raw null)])
-          (if (and post-raw (not (null? post-raw)))
-              (syntax-raw-tail-property stx (raw-cons (or (syntax-raw-tail-property stx) '())
-                                                      (raw-tokens->raw post-raw)))
-              stx))
+(define (add-raw-to-prefix t pre-raw l #:tail [post-raw #f] #:tail-suffix [tail-suffix-raw null])
+  (cons (let* ([stx (record-raw (car l) t pre-raw null)]
+               [stx (if (and post-raw (not (null? post-raw)))
+                        (syntax-raw-tail-property stx (raw-cons (or (syntax-raw-tail-property stx) '())
+                                                                (raw-tokens->raw post-raw)))
+                        stx)]
+               [stx (if (null? tail-suffix-raw)
+                        stx
+                        (syntax-raw-tail-suffix-property stx (raw-tokens->raw tail-suffix-raw)))])
+          stx)
         (cdr l)))
 
 (define (add-raw-to-prefix* t pre-raw l)
@@ -1556,11 +1551,11 @@
        (printf "~.s: ~a~s~a\n"
                (syntax->datum s)
                (if prefix
-                   (format "~s " prefix)
+                   (format "~s+ " prefix)
                    "")
                raw
                (if suffix
-                   (format " ~s" suffix)
+                   (format " +~s" suffix)
                    ""))
        (define e (syntax-e s))
        (when (pair? e)

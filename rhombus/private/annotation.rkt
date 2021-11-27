@@ -11,7 +11,8 @@
                      "srcloc.rkt"
                      "name-path-op.rkt"
                      "tail.rkt"
-                     "misuse.rkt")
+                     "misuse.rkt"
+                     "introducer.rkt")
          "definition.rkt"
          "expression.rkt"
          "binding.rkt"
@@ -31,6 +32,7 @@
          String
          Symbol
          Keyword
+         Void
 
          (for-space rhombus/annotation #%tuple))
 
@@ -62,7 +64,7 @@
 
   (property annotation (predicate-stx static-infos))
 
-  (define in-annotation-space (make-interned-syntax-introducer 'rhombus/annotation))
+  (define in-annotation-space (make-interned-syntax-introducer/add 'rhombus/annotation))
 
   (define (raise-not-a-annotation id)
     (raise-syntax-error #f
@@ -261,6 +263,7 @@
 (define-syntax String (identifier-annotation #'String #'string? #'()))
 (define-syntax Symbol (identifier-annotation #'Symbol #'symbol? #'()))
 (define-syntax Keyword (identifier-annotation #'Keyword #'keyword? #'()))
+(define-syntax Void (identifier-annotation #'Void #'void? #'()))
 
 (define-syntax (define-annotation-syntax stx)
   (syntax-parse stx

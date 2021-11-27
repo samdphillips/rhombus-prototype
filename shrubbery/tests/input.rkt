@@ -1,6 +1,7 @@
 #lang racket/base
 
-(provide input1
+(provide input1s
+         input1
          expected1
 
          input1a
@@ -16,9 +17,14 @@
          expected4
 
          input5
-         expected5)
+         expected5
 
-(define input1
+         input6
+         expected6)
+
+;; input1 is split into parts to accomodate O(n^2) tests
+(define input1s
+  (list
 #<<INPUT
 let (x = 1,
      y = 2):
@@ -75,6 +81,11 @@ define fib:
 // For maximal noise, you could add parentheses and trailing colons.
 // But we won't.
 
+INPUT
+
+;; ----------------------------------------
+
+#<<INPUT
 // START: all of the next `fib` definitions are exactly the same
 
 define fib(n):
@@ -155,7 +166,11 @@ struct posn(x, y):
          eql(a.x, b.x) && eql(a.y, b.y),
        hc,
        hc)
+INPUT
 
+;; ----------------------------------------
+
+#<<INPUT
 // Another possibile approach to syntax for `struct`:
 struct posn:
   fields:
@@ -221,6 +236,12 @@ define approx_thunk(x):
    | nothing: lambda
                | (): 0
                | (n): n
+
+INPUT
+
+;; ----------------------------------------
+
+#<<INPUT
 
 define curried:
   lambda (x):
@@ -304,8 +325,12 @@ local:
 (:, 2)
 (1, :)
 
+(| 1 | 2)
+
 INPUT
-)
+))
+
+(define input1 (apply string-append input1s))
 
 (define expected1
   '(top
@@ -1052,7 +1077,9 @@ INPUT
     (group (block))
     (group (parens (group (block))))
     (group (parens (group (block)) (group 2)))
-    (group (parens (group 1) (group (block))))))
+    (group (parens (group 1) (group (block))))
+    (group (parens (group (alts (block (group 1)) (block (group 2))))))
+    ))
 
 ;; has « », so unarmoring won't work
 (define input1a
@@ -1254,7 +1281,7 @@ INPUT
 (define input2
 #<<INPUT
 
-// A set of examples to see what happens with verious forms,
+// A set of examples to see what happens with various forms,
 // where many of them seem nonsensical
 
 somthing else: 8
@@ -1592,6 +1619,8 @@ INPUT
 @[7]
 @{9}
 @[7]{8, 10 @"more"}
+then @[7]{8}
+then @{8}
 
 @apple{one}{two}
 @banana[0]{three}{four}{five}
@@ -1628,6 +1657,9 @@ INPUT
           @item{z
                 w}]
 
+@(in #{s-exp} mode)
+@{also in @(#{s-exp}) mode}
+
 The end
 INPUT
   )
@@ -1639,6 +1671,8 @@ INPUT
     (group (parens (group 7)))
     (group (parens (group (brackets (group "9")))))
     (group (parens (group 7) (group (brackets (group "8, 10 ") (group "more")))))
+    (group then (parens (group 7) (group (brackets (group "8")))))
+    (group then (parens (group (brackets (group "8")))))
     (group apple (parens (group (brackets (group "one")))
                          (group (brackets (group "two")))))
     (group banana (parens (group 0)
@@ -1688,6 +1722,14 @@ INPUT
       (group
        item
        (parens (group (brackets (group "z") (group "\n") (group "w")))))))
+    (group (parens (group in s-exp mode)))
+    (group
+     (parens
+      (group
+       (brackets
+        (group "also in ")
+        (group (parens (group s-exp)))
+        (group " mode")))))
     (group The end)))
 
 (define input4
@@ -1888,3 +1930,34 @@ INPUT
     (group 1 (op -) (op +) 2)
     (group 1 (op +) 2)
     (group 1 (op ++) 2)))
+
+(define input6
+#<<INPUT
+
+1 // comment on same line
+
+2
+  /* comment weidly indented */
+
+begin:
+ 1+2
+ // comment sticks with block
+ // and this one, too
+
+ // and even this one
+
+(begin:
+   x
+   // block
+ // inner comment
+ ) // after comment
+
+INPUT
+)
+
+(define expected6
+  '(top
+    (group 1)
+    (group 2)
+    (group begin (block (group 1 (op +) 2)))
+    (group (parens (group begin (block (group x)))))))

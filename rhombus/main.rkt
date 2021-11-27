@@ -13,6 +13,7 @@
 (bounce "private/implicit.rkt"
         "private/underscore.rkt"
         "private/arithmetic.rkt"
+        "private/string.rkt"
         "private/dot.rkt"
         "private/class.rkt"
         "private/define.rkt"
@@ -35,7 +36,10 @@
         "private/quasiquote.rkt"
         "private/keyword.rkt"
         "private/symbol.rkt"
-        "private/values.rkt")
+        "private/values.rkt"
+        "private/print.rkt"
+        "private/syntax-object.rkt"
+        "private/syntax-class.rkt")
 
 (module reader syntax/module-reader
   #:language 'rhombus

@@ -1,12 +1,25 @@
 #lang racket/base
 (require (except-in scribble/rhombus
                     if)
-         (prefix-in manual: scribble/manual))
+         (prefix-in manual: scribble/manual)
+         "../private/doc.rhm"
+         "../private/docmodule.rhm"
+         "../private/example.rhm"
+         (only-in "../private/typeset-doc.rkt"
+                  grammar)
+         "../private/rhombus-spacer.rkt")
+
 (provide (all-from-out scribble/rhombus)
          litchar
          (rename-out [manual:deftech deftech]
                      [manual:tech tech]
-                     [manual:math math]))
+                     [manual:math math]
+                     [manual:filepath filepath])
+         doc
+         docmodule
+         grammar
+         examples
+         (all-from-out "../private/rhombus-spacer.rkt"))
 
 (module reader syntax/module-reader
   #:language 'scribble/rhombus/manual
@@ -18,4 +31,3 @@
 
 (define (litchar ls)
   (manual:litchar (if (string? ls) ls (car ls))))
-
