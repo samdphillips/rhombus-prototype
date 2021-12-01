@@ -1,7 +1,7 @@
 #lang scribble/rhombus/manual
 @(import:
-    "util.rhm": no_prefix
-    "common.rhm": no_prefix)
+    "util.rhm" open
+    "common.rhm" open)
 
 @title[~tag: "set"]{Sets}
 
@@ -28,6 +28,6 @@ set. The @rhombus[++] operator effectively unions sets.
   )
 
 @rhombus[Set.of] and @rhombus[make_set] work as you'd expect. When
-@litchar{[}...@litchar{]} with @rhombus[=] is used to modify a mutable
+@litchar{[}...@litchar{]} with @rhombus[:=] is used to modify a mutable
 set, the ``key'' is removed from the set if the assigned value is
 @rhombus[#false], otherwise the ``key'' is added to the set.

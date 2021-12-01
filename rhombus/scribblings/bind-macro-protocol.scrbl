@@ -1,5 +1,7 @@
 #lang scribble/rhombus/manual
-@(import: "util.rhm": no_prefix)
+@(import:
+    "util.rhm" open
+    "common.rhm" open)
 
 @title[~tag: "bind-macro-protocol"]{Low-Level Binding Macros}
 
@@ -174,7 +176,7 @@ which matches only things that are fruits according to @rhombus[is_fruit]:
       )
 
     fun is_fruit(v):
-      v === "apple" || v === "banana"
+      v == "apple" || v == "banana"
 
     val fruit(snack): "apple"
     snack // prints "apple"

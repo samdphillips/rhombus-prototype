@@ -8,28 +8,43 @@
          "implicit.rkt"
          "annotation.rkt"
          "call-result-key.rkt"
-         "static-info.rkt")
+         "static-info.rkt"
+         "forwarding-sequence.rkt")
 
-(provide val)
+(provide val
+         (rename-out [rhombus-let let]))
 
 (module+ for-define
   (provide (for-syntax build-value-definitions
                        build-values-definitions)))
 
-(define-syntax val
+(define-for-syntax (make-val #:wrap-definition [wrap-definition values]
+                             #:check-context [check-context void])
   (definition-transformer
     (lambda (stx)
-     (syntax-parse stx
-       #:datum-literals (parens group block alts op)
-       [(form-id (~optional (~literal values)) (parens g ...) (~and rhs (block body ...)))
-        (build-values-definitions #'form-id
-                                  #'(g ...) #'rhs
-                                  values)]
-       [(form-id any ... (~and rhs (block body ...)))
-        (build-value-definitions #'form-id
-                                 #'(group any ...)
-                                 #'rhs
-                                 values)]))))
+      (check-context stx)
+      (syntax-parse stx
+        #:datum-literals (parens group block alts op)
+        [(form-id (~optional (~literal values)) (parens g ...) (~and rhs (block body ...)))
+         (build-values-definitions #'form-id
+                                   #'(g ...) #'rhs
+                                   wrap-definition)]
+        [(form-id any ... (~and rhs (block body ...)))
+         (build-value-definitions #'form-id
+                                  #'(group any ...)
+                                  #'rhs
+                                  wrap-definition)]))))
+
+(define-syntax val
+  (make-val))
+
+(define-syntax rhombus-let
+  (make-val #:wrap-definition (lambda (defn) #`(rhombus-forward #,defn))
+            #:check-context (lambda (stx)
+                              (when (eq? (syntax-local-context) 'top-level)
+                                (raise-syntax-error #f
+                                                    "not allowed in a top-level context"
+                                                    stx)))))
 
 (define-for-syntax (build-value-definitions form-id g-stx rhs-stx wrap-definition)
   (syntax-parse g-stx

@@ -1,5 +1,5 @@
 #lang scribble/rhombus/manual
-@(import: "common.rhm": no_prefix)
+@(import: "common.rhm" open)
 
 @title{Definitions}
 
@@ -47,12 +47,39 @@
 
 
 @doc[
+  defn.macro '(let $binding:
+                 $body
+                 ...)
+]{
+
+ Like @rhombus[val], but for bindings that become visible only after the
+ @rhombus[let] form within its definition context. The @rhombus[let] form
+ cannot be used in a top-level context outside of a module or local block.
+
+@examples[
+  begin:
+    let v: 1
+    fun get_v(): v
+    let v: v+1
+    [get_v(), v]
+]
+
+}
+
+
+
+@doc[
   defn.macro '(def $binding:
                  $body
                  ...),
-  defn.macro '(def $identifier ($arg_binding, ...) $maybe_result_annotation:
+  defn.macro '(def $identifier ($kwopt_binding, ...) $maybe_result_annotation:
                  $body
                  ...),
+  defn.macro '(def
+               | $identifier ($binding, ...) $maybe_result_annotation:
+                   $body
+                   ...
+               | ...),
   defn.macro '(def ' $expr_pattern:
                  $body
                  ...),
@@ -72,19 +99,3 @@
 }
 
 
-
-@doc[
-  defn.macro '(let $binding:
-                 $body
-                 ...),
-  defn.macro '(let $identifier ($arg_binding, ...) $maybe_result_annotation:
-                 $body
-                 ...),
-  defn.macro '(let ' $expr_pattern:
-                 $body)
-]{
-
- Like @rhombus[def], but for bindings that become visible only after the
- @rhombus[let] form within its definition context.
-
-}

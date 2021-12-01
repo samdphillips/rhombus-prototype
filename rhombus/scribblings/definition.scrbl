@@ -1,7 +1,7 @@
 #lang scribble/rhombus/manual
 @(import:
-    "util.rhm": no_prefix
-    "common.rhm": no_prefix)
+    "util.rhm" open
+    "common.rhm" open)
 
 @title{Definitions and Classes}
 
@@ -184,7 +184,7 @@ pattern constructor as a function definition.
     pin_x  // prints 3
   )
 
-The @rhombus[let] form is like @rhombus[def], but it makes bindings
+The @rhombus[let] form is like @rhombus[val], but it makes bindings
 available only @emph{after} the definition, and it shadows any binding
 before, which is useful for binding a sequence of results to the same
 name. The @rhombus[let] form does not change the binding region of other
