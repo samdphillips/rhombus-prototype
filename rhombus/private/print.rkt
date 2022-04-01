@@ -43,6 +43,10 @@
       [(or (string? v)
            (bytes? v)
            (exact-integer? v))
+       (cond
+         [(display?) (display v op)]
+         [else (write v op)])]
+      [(exact-integer? v)
        (write v op)]
       [(boolean? v)
        (display (if v "#true" "#false") op)]
@@ -96,13 +100,30 @@
        (display "}" op)]
       [(syntax? v)
        (define s (syntax->datum v))
-       (display "'" op)
-       (when (and (pair? s)
-                  (eq? 'op (car s)))
-         (display " " op))
-       (write-shrubbery s op)]
+       (define maybe-nested? (let loop ([s s ])
+                               (and (pair? s)
+                                    (case (car s)
+                                      [(quotes) #t]
+                                      [(op s) #f]
+                                      [else (ormap loop (cdr s))]))))
+       (display (if maybe-nested? "'«" "'") op)
+       (cond
+         [(and (pair? s) (eq? 'multi (car s)))
+          (write-shrubbery (cons 'top (cdr s)) op)]
+         [(and (pair? s) (eq? 'group (car s)))
+          (write-shrubbery (list 'top s) op)]
+         [else
+          (write-shrubbery s op)])
+       (display (if maybe-nested? "»'" "'") op)]
       [(procedure? v)
-       (write v op)]
+       (define name (object-name v))
+       (cond
+         [name
+          (display "#<function:" op)
+          (display name op)
+          (display ">" op)]
+         [else
+          (display "#<function>") op])]
       [(symbol? v)
        (cond
          [(display?)

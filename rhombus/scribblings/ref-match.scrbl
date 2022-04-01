@@ -4,22 +4,22 @@
 @title{Matching}
 
 @doc[
-  decl.macro '(match $target_expr
-               | $binding:
-                   $result_body
-                   ...
-               | ...),
-  decl.macro '(match $target_expr
-               | $binding:
-                   $result_body
-                   ...
-               | ...
-               | ~else:
-                   $result_body
-                   ...)
+  decl.macro 'match $target_expr
+              | $binding:
+                  $result_body
+                  ...
+              | ...',
+  decl.macro 'match $target_expr
+              | $binding:
+                  $result_body
+                  ...
+              | ...
+              | ~else:
+                  $result_body
+                  ...'
 ]{
 
- Tries matching theresult of @rhombus[target_expr] against each
+ Tries matching the result of @rhombus[target_expr] against each
  @rhombus[binding] in sequence, and as soon as one matches, returns the
  result of the corresponding @rhombus[result_body] block. The keyword
  @rhombus[~else] can be used as a synonym for @rhombus[_, ~bind] (which matches
@@ -49,7 +49,7 @@
 }
 
 @doc[
-  bind.macro '_
+  bind.macro '_'
 ]{
 
  Matches any value without binding any identifiers.

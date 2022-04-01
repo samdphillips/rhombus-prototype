@@ -12,12 +12,15 @@
          "map-ref-set-key.rkt"
          "call-result-key.rkt"
          "composite.rkt"
-         "parse.rkt")
+         "parse.rkt"
+         "realm.rkt"
+         "folder.rkt")
 
 (provide Map
          (for-space rhombus/binding Map)
          (for-space rhombus/annotation Map)
          (for-space rhombus/static-info Map)
+         (for-space rhombus/folder Map)
 
          make_map
          (for-space rhombus/static-info make_map))
@@ -35,16 +38,17 @@
       (cond
         [(null? args) ht]
         [(null? (cdr args))
-         (raise-arguments-error 'Map
-                                (string-append "key does not have a value"
-                                               " (i.e., an odd number of arguments were provided)")
-                                "key" (car args))]
+         (raise-arguments-error* 'Map rhombus-realm
+                                 (string-append "key does not have a value"
+                                                " (i.e., an odd number of arguments were provided)")
+                                 "key" (car args))]
         [else (loop (hash-set ht (car args) (cadr args)) (cddr args))]))))
 
 (define-for-syntax map-static-info
   #'((#%map-ref hash-ref)
      (#%map-set! hash-set!)
-     (#%map-append hash-append)))
+     (#%map-append hash-append)
+     (#%sequence-constructor in-hash)))
 
 (define-annotation-syntax Map
   (annotation-constructor #'Map #'hash? map-static-info
@@ -57,7 +61,22 @@
                             #`((#%ref-result #,(cadr static-infoss))))))
 
 (define-static-info-syntax Map
-  (#%call-result ((#%map-ref hash-ref))))
+  (#%call-result ((#%map-ref hash-ref)
+                  (#%sequence-constructor in-hash))))
+
+(define-folder-syntax Map
+  (folder-transformer
+   (lambda (stx)
+     (syntax-parse stx
+       [(_)
+        #`[begin
+           ([ht #hash()])
+           (add-to-map ht)
+           #,map-static-info]]))))
+
+(define-syntax-rule (add-to-map ht e)
+  (let-values ([(k v) e])
+    (hash-set ht k v)))
 
 (define make_map
   (lambda args
@@ -65,7 +84,8 @@
 
 (define-static-info-syntax make_map
   (#%call-result ((#%map-ref hash-ref)
-                  (#%map-set! hash-set!))))
+                  (#%map-set! hash-set!)
+                  (#%sequence-constructor in-hash))))
 
 (define-binding-syntax Map
   (binding-prefix-operator
@@ -104,7 +124,8 @@
                 [tail tail])
     (define tmp-ids (generate-temporaries #'(key ...)))
     (define-values (composite new-tail)
-      ((make-composite-binding-transformer #'(lambda (v) #t)
+      ((make-composite-binding-transformer "Map"
+                                           #'(lambda (v) #t)
                                            (for/list ([tmp-id (in-list tmp-ids)])
                                              #`(lambda (v) #,tmp-id))
                                            (for/list ([arg (in-list tmp-ids)])
@@ -125,7 +146,8 @@
     [(_ static-infos (keys tmp-ids composite-infoer-id composite-data))
      #:with composite-impl::binding-impl #'(composite-infoer-id static-infos composite-data)
      #:with composite-info::binding-info #'composite-impl.info
-     (binding-info #'composite-info.name-id
+     (binding-info #'composite-info.annotation-str
+                   #'composite-info.name-id
                    #'composite-info.static-infos
                    #'composite-info.bind-infos
                    #'map-matcher

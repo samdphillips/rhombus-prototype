@@ -2,8 +2,8 @@
 (require (for-syntax racket/base
                      syntax/parse
                      shrubbery/print
-                     shrubbery/property
-                     "infer-name.rkt")
+                     "infer-name.rkt"
+                     "tag.rkt")
          "definition.rkt"
          "binding.rkt"
          "parse.rkt"
@@ -32,7 +32,7 @@
                                    #'(g ...) #'rhs
                                    wrap-definition)]
         [(form-id any ... (~and rhs (block body ...)))
-         #:with g-tag (syntax-raw-property (datum->syntax #f 'group) "")
+         #:with g-tag group-tag
          (build-value-definitions #'form-id
                                   #'(g-tag any ...)
                                   #'rhs
@@ -64,7 +64,7 @@
                           lhs-i.data
                           flattened-if
                           (void)
-                          (rhs-binding-failure '#,form-id tmp-id '#,(shrubbery-syntax->string #'lhs)))
+                          (rhs-binding-failure '#,form-id tmp-id 'lhs-i.annotation-str))
       (wrap-definition
        #`(begin
            (lhs-i.binder-id tmp-id lhs-i.data)
@@ -79,9 +79,17 @@
      #:with (lhs-impl::binding-impl ...) #'((lhs-e.infoer-id () lhs-e.data) ...)
      #:with (lhs-i::binding-info ...) #'(lhs-impl.info ...)
      #:with (tmp-id ...) (generate-temporaries #'(lhs-i.name-id ...))
-     #:with (lhs-str ...) (for/list ([lhs (in-list (syntax->list #'(lhs ...)))])
-                            (shrubbery-syntax->string lhs))
-     (list
+     #:with lhs-str (string-append
+                     "values("
+                     (apply
+                      string-append
+                      (for/list ([lhs (in-list (syntax->list #'(lhs ...)))]
+                                 [i (in-naturals)])
+                        (string-append
+                         (if (zero? i) "" ", ")
+                         (shrubbery-syntax->string lhs))))
+                     ")")
+    (list
       #'(define-values (tmp-id ...) (let-values ([(lhs-i.name-id ...) (rhombus-body-expression rhs)])
                                       (values lhs-i.name-id ...)))
      (wrap-definition

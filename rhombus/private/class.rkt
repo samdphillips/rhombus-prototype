@@ -12,7 +12,8 @@
          "call-result-key.rkt"
          "composite.rkt"
          "assign.rkt"
-         "static-info.rkt")
+         "static-info.rkt"
+         "realm.rkt")
 
 (provide (rename-out [rhombus-class class]))
 
@@ -25,13 +26,16 @@
   (define-syntax-class :field
     #:datum-literals (group op)
     #:literals (mutable)
-    (pattern (group (~optional mutable
+    (pattern (group (~optional (~and mutable (~var mutable))
                                #:defaults ([mutable #'#f]))
                     name:identifier
                     (~optional c::inline-annotation))
              #:attr predicate (if (attribute c)
                                   #'c.predicate
                                   #'#f)
+             #:attr annotation-str (if (attribute c)
+                                       #'c.annotation-str
+                                       #'#f)
              #:attr static-infos (if (attribute c)
                                      #'c.static-infos
                                      #'()))))
@@ -72,8 +76,9 @@
                                                               [i (in-naturals)])
                                                      i)]
                       [(mutable-field ...) mutable-fields]
-                      [(mutable-field-index ...) (for/list ([field (in-list mutable-fields)]
-                                                            [i (in-naturals)])
+                      [(mutable-field-index ...) (for/list ([mutable (syntax->list #'(field.mutable ...))]
+                                                            [i (in-naturals)]
+                                                            #:when (syntax-e mutable))
                                                    i)])
           (list
            #`(define-values (class:name name name? name-field ... set-name-field! ...)
@@ -83,16 +88,19 @@
                                                #f #f
                                                '(immutable-field-index ...)
                                                #,(build-guard-expr fields
-                                                                   (syntax->list #'(field.predicate ...))))])
+                                                                   (syntax->list #'(field.predicate ...))
+                                                                   (map syntax-e
+                                                                        (syntax->list #'(field.annotation-str ...)))))])
                  (values class:name name name?
-                         (make-struct-field-accessor name-ref field-index 'field.name)
+                         (make-struct-field-accessor name-ref field-index 'name-field 'name 'rhombus)
                          ...
-                         (make-struct-field-accessor name-set! mutable-field-index 'mutable-field)
+                         (make-struct-field-mutator name-set! mutable-field-index 'set-name-field! 'name 'rhombus)
                          ...)))
-           #'(define-binding-syntax name
+           #`(define-binding-syntax name
                (binding-transformer
                 #'name
-                (make-composite-binding-transformer (quote-syntax name?)
+                (make-composite-binding-transformer #,(symbol->string (syntax-e #'name))
+                                                    (quote-syntax name?)
                                                     #:static-infos (quote-syntax ((#%dot-provider name-instance)))
                                                     (list (quote-syntax name-field) ...)
                                                     #:accessor->info? #t
@@ -118,19 +126,21 @@
                (define-static-info-syntax/maybe* name-field (#%call-result field.static-infos))
                ...)))]))))
 
-(define-for-syntax (build-guard-expr fields predicates)
+(define-for-syntax (build-guard-expr fields predicates annotation-strs)
   (and (for/or ([predicate (in-list predicates)])
          (syntax-e predicate))
        #`(lambda (#,@fields who)
            (values #,@(for/list ([field (in-list fields)]
-                                 [predicate (in-list predicates)])
+                                 [predicate (in-list predicates)]
+                                 [annotation-str (in-list annotation-strs)])
                         (cond
                           [(not (syntax-e predicate)) field]
                           [else #`(if (#,predicate #,field)
                                       #,field
-                                      (raise-argument-error who
-                                                            #,(format "~a" (syntax-e predicate))
-                                                            #,field))]))))))
+                                      (raise-argument-error* who
+                                                             rhombus-realm
+                                                             '#,annotation-str
+                                                             #,field))]))))))
 
 (define-for-syntax (make-class-instance-predicate accessors)
   (lambda (arg predicate-stxs)

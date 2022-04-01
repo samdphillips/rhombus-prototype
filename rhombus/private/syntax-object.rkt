@@ -1,14 +1,18 @@
 #lang racket/base
 (require (for-syntax racket/base
-                     syntax/parse)
+                     syntax/parse
+                     "pack.rkt")
          syntax/parse
          racket/syntax-srcloc
          shrubbery/property
-         "expression.rkt")
+         "expression.rkt"
+         "pack.rkt"
+         "realm.rkt")
 
 (provide literal_syntax
-         literal_syntax_term
+         literal_group_syntax
          to_syntax
+         to_alts_syntax
          unwrap_syntax
          relocate_syntax
          relocate_span_syntax)
@@ -18,48 +22,88 @@
    #'literal_syntax
    (lambda (stx)
      (syntax-parse stx
-       [(_ form . tail)
-        (values #'(quote-syntax form) #'tail)]))))
+       #:datum-literals (parens quotes group)
+       [(_ ((~or parens quotes) (group term)) . tail)
+        ;; Note: discarding group properties in this case
+        (values #'(quote-syntax term) #'tail)]
+       [(_ (~and ((~or parens quotes) . _) gs) . tail)
+        (values #`(quote-syntax #,(pack-multi #'gs)) #'tail)]))))
 
-(define-syntax literal_syntax_term
+(define-syntax literal_group_syntax
   (expression-transformer
    #'literal_syntax
    (lambda (stx)
      (syntax-parse stx
-       #:datum-literals (parens group)
-       [(_ (parens (group term)) . tail)
-        (values #'(quote-syntax term) #'tail)]))))
+       #:datum-literals (parens quotes group)
+       [(_ ((~or parens quotes)) . tail)
+        (values #`(quote-syntax #,(pack-multi '(any))) #'tail)]
+       [(_ ((~or parens quotes) g) . tail)
+        (values #'(quote-syntax g) #'tail)]))))
 
 ;; ----------------------------------------
 
 (define (relevant-source-syntax ctx-stx-in)
   (syntax-parse ctx-stx-in
-    #:datum-literals (group block alts parens brackets braces op)
-    [((~and head (~or group block alts parens brackets braces)) . _) #'head]
+    #:datum-literals (group block alts parens brackets braces quotes multi op)
+    [((~and head (~or group block alts parens brackets braces quotes)) . _) #'head]
+    [(multi (g t))
+     #:when (syntax-property #'g 'from-pack)
+     (relevant-source-syntax #'t)]
+    [(multi (g . _)) #'g]
     [(op o) #'o]
     [_ ctx-stx-in]))
 
 (define (to_syntax v)
   (datum->syntax #f v))
 
+(define (to_alts_syntax blocks)
+  (let ([blocks (map (lambda (block)
+                       (and (syntax? block)
+                            (let ([block (repack-as-term block)])
+                              (syntax-parse block
+                                #:datum-literals (block)
+                                [(block . _) block]
+                                [else #f]))))
+                     blocks)])
+    (unless (andmap values blocks)
+      (raise-argument-error* 'unwrap_syntax rhombus-realm "List.of(BlockSyntax)" blocks))
+    (datum->syntax #f (cons 'alts blocks))))
+
 (define (unwrap_syntax v)
-  (syntax-e v))
+  (cond
+    [(not (syntax? v))
+     (raise-argument-error* 'unwrap_syntax rhombus-realm "Syntax" v)]
+    [else
+     (syntax-e (unpack-term v 'unwrap_syntax))]))
 
 (define (relocate_syntax stx ctx-stx-in)
-  (unless (syntax? stx) (raise-argument-error 'relocate_syntax "syntax?" stx))
+  (unless (syntax? stx) (raise-argument-error* 'relocate_syntax rhombus-realm "Syntax" stx))
+  (unless (syntax? ctx-stx-in) (raise-argument-error* 'relocate_syntax rhombus-realm "Syntax" ctx-stx-in))
   (define ctx-stx (relevant-source-syntax ctx-stx-in))
-  (syntax-parse stx
-    #:datum-literals (group block alts parens brackets braces op)
-    [((~and head (~or group block alts parens brackets braces)) . rest)
-     #`(#,(datum->syntax #'head (syntax-e #'head) ctx-stx ctx-stx) . rest)]
-    [(op o)
-     #`(op #,(datum->syntax #'o (syntax-e #'o) ctx-stx ctx-stx) . rest)]
-    [_
-     (datum->syntax stx (syntax-e stx) ctx-stx ctx-stx)]))
+  #;(log-error "?? ~s" (syntax->datum stx))
+  #;(log-error " : ~s" (syntax->datum ctx-stx-in))
+  #;(log-error " = ~s" (syntax->datum ctx-stx))
+  (define (relocate stx)
+    #;(log-error " ! ~s" (syntax->datum stx))
+    (datum->syntax stx (syntax-e stx) ctx-stx ctx-stx))
+  (let loop ([stx stx])
+    (syntax-parse stx
+      #:datum-literals (group block alts parens brackets braces quotes multi op)
+      [((~and head (~or group block alts parens brackets braces quotes)) . rest)
+       (datum->syntax #f (cons (relocate #'head) #'rest))]
+      [((~and m multi) (g t))
+       #:when (syntax-property #'g 'from-pack)
+       (loop #'t)]
+      [((~and m multi) (g . rest))
+       (datum->syntax #f (list #'m (cons (relocate #'g) #'rest)))]
+      [((~and tag op) o)
+       (datum->syntax #f (list #'tag (relocate #'o)))]
+      [_
+       (relocate stx)])))
 
 (define (relocate_span_syntax stx ctx-stxes-in
                               #:keep_raw_interior [keep-raw-interior? #f])
-  (unless (syntax? stx) (raise-argument-error 'relocate_span_syntax "syntax?" stx))
+  (unless (syntax? stx) (raise-argument-error* 'relocate_span_syntax rhombus-realm "Syntax" stx))
   (define ctx-stxes (map relevant-source-syntax ctx-stxes-in))
   (define (combine-raw a b) (if (null? a) b (if (null? b) a (cons a b))))
   (let loop ([ctx-stxes (cdr ctx-stxes)]

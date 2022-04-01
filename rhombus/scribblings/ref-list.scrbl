@@ -30,8 +30,8 @@ with the @rhombus[++] operator to append lists.
 }
 
 @doc[
-  bind.macro '(List($binding, ...)),
-  bind.macro '(List($binding, ..., $dots)),
+  bind.macro 'List($binding, ...)',
+  bind.macro 'List($binding, ..., $dots)',
   grammar dots:
     $$(dots)
 ]{
@@ -51,8 +51,8 @@ with the @rhombus[++] operator to append lists.
 }
 
 @doc[
-  annotation.macro 'List,
-  annotation.macro '(List.of($annotation)),
+  annotation.macro 'List',
+  annotation.macro 'List.of($annotation)',
 ]{
 
  Matches any list in the form without @rhombus[of]. The @rhombus[of]
@@ -61,10 +61,19 @@ with the @rhombus[++] operator to append lists.
 }
 
 @doc[
-  bind.macro '(...)
+  folder.macro 'List'
+]{
+
+ A @tech{folder} used with @rhombus[for], accumulates each result of a
+ @rhombus[for] body into a result list.
+
+}
+
+@doc[
+  bind.macro '...'
 ]{
 
  Used within binding patterns such as @rhombus[List, ~bind] or
- @rhombus[', ~bind] to indicate repetation.
+ @rhombus['', ~bind] to indicate repetition.
 }
 

@@ -8,7 +8,8 @@
          "expression.rkt"
          "static-info.rkt"
          "dot-provider-key.rkt"
-         "racket-class.rkt")
+         "racket-class.rkt"
+         "realm.rkt")
 
 (provide |.|
          use_static_dot
@@ -105,9 +106,10 @@
 (define (dot-lookup-by-name v field)
   (define ht (field-name->accessor-ref v #f))
   (define (fail)
-    (raise-arguments-error field
-                           "no such field"
-                           "in value" v))
+    (raise-arguments-error* field
+                            rhombus-realm
+                            "no such field"
+                            "in value" v))
   (cond
     [(object? v) (object-dot-lookup v field fail)]
     [(not ht) (fail)]

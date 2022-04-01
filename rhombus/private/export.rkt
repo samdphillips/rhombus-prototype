@@ -13,7 +13,8 @@
                      enforest/syntax-local
                      "name-path-op.rkt"
                      "srcloc.rkt"
-                     "introducer.rkt")
+                     "introducer.rkt"
+                     "realm.rkt")
          "name-root-ref.rkt"
          "declaration.rkt"
          (submod "module-path.rkt" for-import-export))
@@ -40,7 +41,7 @@
   (define in-export-space (make-interned-syntax-introducer/add 'rhombus/export))
 
   (define (check-export-result form proc)
-    (unless (syntax? form) (raise-result-error (proc-name proc) "syntax?" form))
+    (unless (syntax? form) (raise-result-error* (proc-name proc) rhombus-realm "Syntax" form))
     form)
 
   (define (make-identifier-export id)
@@ -96,7 +97,7 @@
                         (list 0)
                         (hash-keys
                          (for/hash ([p+s (in-list phase+spaces)])
-                           (phase+space-phase p+s)))))
+                           (values (phase+space-phase p+s) #t)))))
      (define id (syntax-parse stx [(_ id) #'id]))
      (define (make-export phase space id)
        (export id

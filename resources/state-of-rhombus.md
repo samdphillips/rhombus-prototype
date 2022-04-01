@@ -1,4 +1,4 @@
-State of Rhombus - DRAFT
+State of Rhombus
 
 Jack Firth, October 2021
 
@@ -169,7 +169,7 @@ community almost universally agrees needs improvement.
 
 General purpose. Volunteers: none yet. Relevant GitHub issues:
 [#57](https://github.com/racket/rhombus-brainstorming/issues/57),
-[#76](https://github.com/racket/rhombus-brainstorming/issues/176,
+[#76](https://github.com/racket/rhombus-brainstorming/issues/176),
 [#151](https://github.com/racket/rhombus-brainstorming/issues/151),
 [#152](https://github.com/racket/rhombus-brainstorming/issues/152).
 
@@ -179,7 +179,7 @@ classes, generics, and structure type properties. There’s a lot of
 room to leverage shrubbery notation here, especially if we were to
 build some sort of [dot transformer protocol](https://github.com/racket/rhombus-brainstorming/issues/151) for macros to use.
 
-##Other ideas
+## Other ideas
 
 * Concurrency and parallelism. Can we do better than Racket here?
 

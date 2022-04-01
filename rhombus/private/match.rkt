@@ -1,11 +1,13 @@
 #lang racket/base
 (require (for-syntax racket/base
                      syntax/parse
-                     "srcloc.rkt")
+                     "srcloc.rkt"
+                     "annotation-string.rkt")
          "expression.rkt"
          "binding.rkt"
          "parse.rkt"
-         (submod "function.rkt" for-build))
+         (submod "function.rkt" for-build)
+         "realm.rkt")
 
 (provide match)
 
@@ -82,7 +84,11 @@
 (define (raise-srcloc-error who v loc)
   (raise
    (exn:fail:contract:srcloc
-    (format "~a: no matching case" who)
+    (error-message->adjusted-string
+     who
+     rhombus-realm
+     "no matching case"
+     rhombus-realm)
     (current-continuation-marks)
     (if loc
         (list loc)
@@ -94,7 +100,8 @@
 (define-syntax (else-infoer stx)
   (syntax-parse stx
     [(_ static-infos (ok? bind-id))
-     (binding-info #'bind-id
+     (binding-info annotation-any-string
+                   #'bind-id
                    #'static-infos
                    #'()
                    #'else-matcher

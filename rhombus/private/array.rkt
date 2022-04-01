@@ -28,7 +28,8 @@
 
 (define-static-info-syntax Array
   (#%call-result ((#%map-ref vector-ref)
-                  (#%map-set! vector-set!))))
+                  (#%map-set! vector-set!)
+                  (#%sequence-constructor in-vector))))
 
 (define-binding-syntax Array
   (binding-prefix-operator
@@ -43,7 +44,8 @@
         (define pred #`(lambda (v)
                          (and (vector? v)
                               (= (vector-length v) #,len))))
-        ((make-composite-binding-transformer pred
+        ((make-composite-binding-transformer "Array"
+                                             pred
                                              (for/list ([arg (in-list args)]
                                                         [i (in-naturals)])
                                                #`(lambda (v) (vector-ref v #,i)))

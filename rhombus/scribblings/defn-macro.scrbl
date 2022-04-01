@@ -16,12 +16,10 @@ Here’s the classic @rhombus[def_five] macro:
 
 @(rhombusblock:
     import:
-      rhombus/macro: no_prefix
+      rhombus/macro: open
 
-    defn.macro '(def_five $id):
-      '(:
-          def $id: 5
-      )
+    defn.macro 'def_five $id':
+      'def $id: 5'
 
     def_five v
     v  // prints 5

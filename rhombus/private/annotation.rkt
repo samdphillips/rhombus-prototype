@@ -11,15 +11,18 @@
                      enforest/operator
                      "srcloc.rkt"
                      "name-path-op.rkt"
-                     "tail.rkt"
+                     "pack.rkt"
                      "misuse.rkt"
-                     "introducer.rkt")
+                     "introducer.rkt"
+                     "annotation-string.rkt"
+                     "realm.rkt")
          "definition.rkt"
          "expression.rkt"
          "binding.rkt"
          "expression+binding.rkt"
          "static-info.rkt"
-         "parse.rkt")
+         "parse.rkt"
+         "realm.rkt")
 
 (provide ::
          -:
@@ -33,6 +36,7 @@
          String
          Symbol
          Keyword
+         Syntax
          Void
 
          (for-space rhombus/annotation #%tuple))
@@ -77,9 +81,10 @@
                  (let ([l (syntax->list stx)])
                    (and l
                         (= (length l) 2))))
-      (raise-result-error (proc-name proc)
-                          "annotation-syntax?"
-                          stx))
+      (raise-result-error* (proc-name proc)
+                           rhombus-realm
+                           "Annotation_Syntax"
+                           stx))
     stx)
 
   (define-enforest
@@ -109,10 +114,12 @@
              #:with c::annotation #'(group ctc ...)
              #:with c-parsed::annotation-form #'c.parsed
              #:attr predicate #'c-parsed.predicate
+             #:attr annotation-str (datum->syntax #f (shrubbery-syntax->string #'(ctc ...)))
              #:attr static-infos #'c-parsed.static-infos)
     (pattern (~seq (op -:) ctc ...)
              #:with c::annotation #'(group ctc ...)
              #:with c-parsed::annotation-form #'c.parsed
+             #:attr annotation-str (datum->syntax #f (shrubbery-syntax->string #'(ctc ...)))
              #:attr predicate #'#f
              #:attr static-infos #'c-parsed.static-infos))
 
@@ -160,10 +167,10 @@
                                     (syntax-parse c-parsed
                                       [c::annotation-form #'c.static-infos])))
           (values (annotation-form #`(lambda (v)
-                                     (and (#,predicate-stx v)
-                                          #,(predicate-maker #'v c-predicates)))
-                                 #`(#,@(info-maker c-static-infoss)
-                                    . #,static-infos))
+                                       (and (#,predicate-stx v)
+                                            #,(predicate-maker #'v c-predicates)))
+                                   #`(#,@(info-maker c-static-infoss)
+                                      . #,static-infos))
                   #'tail)]
          [(_ . tail)
           (values (annotation-form predicate-stx
@@ -200,7 +207,8 @@
         (values
          (binding-form
           #'annotation-infoer
-          #`(#,(and checked? #'c-parsed.predicate)
+          #`(#,(shrubbery-syntax->string #'t)
+             #,(and checked? #'c-parsed.predicate)
              c-parsed.static-infos
              left.infoer-id
              left.data))
@@ -228,11 +236,12 @@
 
 (define-syntax (annotation-infoer stx)
   (syntax-parse stx
-    [(_ static-infos (predicate (static-info ...) left-infoer-id left-data))
+    [(_ static-infos (annotation-str predicate (static-info ...) left-infoer-id left-data))
      #:with left-impl::binding-impl #'(left-infoer-id (static-info ... . static-infos) left-data)
      #:with left::binding-info #'left-impl.info
      (if (syntax-e #'predicate)
-         (binding-info #'left.name-id
+         (binding-info (annotation-string-and (syntax-e #'left.annotation-str) (syntax-e #'annotation-str))
+                       #'left.name-id
                        #'left.static-infos
                        #'left.bind-infos
                        #'check-predicate-matcher
@@ -264,6 +273,7 @@
 (define-syntax String (identifier-annotation #'String #'string? #'()))
 (define-syntax Symbol (identifier-annotation #'Symbol #'symbol? #'()))
 (define-syntax Keyword (identifier-annotation #'Keyword #'keyword? #'()))
+(define-syntax Syntax (identifier-annotation #'Syntax #'syntax? #'()))
 (define-syntax Void (identifier-annotation #'Void #'void? #'()))
 
 (define-syntax (define-annotation-syntax stx)
@@ -273,12 +283,21 @@
          rhs)]))
 
 (define (raise-annotation-failure val ctc)
-  (error '::
-         (string-append "value does not match annotation\n"
-                        "  argument: ~v\n"
-                        "  annotation: ~a")
-         val
-         ctc))
+  (raise
+   (exn:fail:contract
+    (error-message->adjusted-string
+     '::
+     rhombus-realm
+     (format
+      (string-append "value does not match annotation\n"
+                     "  argument: ~v\n"
+                     "  annotation: ~a")
+      val
+      (error-contract->adjusted-string
+       ctc
+       rhombus-realm))
+     rhombus-realm)
+    (current-continuation-marks))))
 
 (define-syntax matching
   (annotation-prefix-operator

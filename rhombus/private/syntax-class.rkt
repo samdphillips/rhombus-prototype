@@ -7,14 +7,14 @@
          "name-root.rkt"
          "definition.rkt")
 
-(provide $:
-         Term
+(provide Term
          Id
          Op
          Id_Op
          Keyw
          Group
-         Block)
+         Block
+         Multi)
 
 (module+ for-macro
   (provide syntax))
@@ -30,13 +30,13 @@
 
   (struct rhombus-syntax-class (kind class)))
 
-(define-syntax $: "only in patterns")
 (define-syntax Term (rhombus-syntax-class 'term #f))
 (define-syntax Id (rhombus-syntax-class 'term #'identifier))
 (define-syntax Op (rhombus-syntax-class 'term #':operator))
 (define-syntax Id_Op (rhombus-syntax-class 'term #':operator-or-identifier))
 (define-syntax Keyw (rhombus-syntax-class 'term #'keyword))
 (define-syntax Group (rhombus-syntax-class 'group #f))
+(define-syntax Multi (rhombus-syntax-class 'multi #f))
 (define-syntax Block (rhombus-syntax-class 'block #f))
 
 (define-simple-name-root syntax
