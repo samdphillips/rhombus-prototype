@@ -16,9 +16,9 @@
 (define-simple-name-root decl
   macro)
 
-(define-syntax macro
-  (make-identifier-syntax-definition-transformer (lambda (x) x)
-                                                 #'make-declaration-transformer))
+(define-identifier-syntax-definition-transformer macro
+  (lambda (x) x)
+  #'make-declaration-transformer)
 
 (define-for-syntax (make-declaration-transformer proc)
   (declaration-transformer
@@ -28,7 +28,7 @@
         (unpack-declarations (proc (pack-tail #'tail) #'head) proc)]))))
 
 (define-for-syntax (unpack-declarations form proc)
-  (syntax-parse (unpack-multi form proc)
+  (syntax-parse (unpack-multi form proc #f)
     #:datum-literals (parens block group)
     [((group d ...) ...)
      #`((rhombus-top (group d ...))

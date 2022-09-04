@@ -1,0 +1,55 @@
+#lang rhombus
+import: "check.rhm" open
+
+namespace home:
+  val x: "x"
+  class Posn(x, y)
+  export:
+    x
+    Posn
+    rename: List as XList
+
+check:
+  home.x
+  "x"
+
+check:
+  use_static
+  home.Posn(1, 2).x
+  1
+
+check:
+  match home.Posn(1, 2)
+  | home.Posn(x, y):
+      x
+  1
+
+check:
+  match home.XList(1, 2)
+  | home.XList(x, y):
+      for home.XList:
+        ~each i: x..3
+        i
+  [1, 2]
+
+check:
+  import: .home open
+  match XList(1, 2)
+  | XList(x, y):
+      for XList:
+        ~each i: x..3
+        i
+  [1, 2]
+
+check:
+  import: .home open
+  match Posn(1, 2)
+  | Posn(x, y):
+      x
+  1
+
+check:
+  namespace like_home:
+    export: home.x
+  like_home.x
+  "x"

@@ -15,7 +15,9 @@
                   plain
                   nested-flow)
          (submod scribble/racket id-element)
-         (for-template "typeset-help.rkt"))
+         (for-template "typeset-help.rkt")
+         "add-space.rkt"
+         "line-shape.rkt")
 
 (provide typeset-rhombus
          typeset-rhombusblock)
@@ -166,6 +168,8 @@
                                                                           [else #f])))
                                             (syntax-case block-stx ()
                                               [(b . _) (syntax-column #'b)])
+                                            (syntax-case block-stx ()
+                                              [(b . _) (syntax-raw-property #'b)])
                                             stx-ranges))
   (define position-stxes (for/fold ([ht #hasheqv()]) ([(k v) (in-hash stx-ranges)])
                            (hash-set ht (car v) (cons k (hash-ref ht (car v) '())))))
@@ -173,7 +177,11 @@
   (define in (open-input-string str))
   (port-count-lines! in)
   (define elements+linebreaks
-    (let loop ([state #f] [pos 0] [skip-ws init-col])
+    ;; loop over all tokens in `str`
+    (let token-loop ([state #f]            ; lexer state
+                     [pos 0]               ; number of positions typeset so far
+                     [skip-ws init-col]    ; amount of leading space on this line to be skipped
+                     [line-shape (make-line-shape)]) ; for generating compatible (e.g., bold) leading whitespace
       (define-values (lexeme attribs paren start+1 end+1 backup new-state)
         (shrubbery-lexer in 0 state))
       (cond
@@ -181,12 +189,14 @@
         [else
          (define start (sub1 start+1))
          (define end (sub1 end+1))
-         (let t-loop ([pos pos] [skip-ws skip-ws])
+         ;; `ghost-loop` deals with content (treated as space) that
+         ;; somehow doesn't show up as a token; it runs only once or twice
+         (let ghost-loop ([pos pos] [skip-ws skip-ws])
            (cond
              [(pos . < . start)
               (define amt (- start pos))
               (cons (element hspace-style (make-string (max 0 (- amt skip-ws)) #\space))
-                    (t-loop start (- skip-ws amt)))]
+                    (ghost-loop start (- skip-ws amt)))]
              [else
               (define type (if (hash? attribs)
                                (hash-ref attribs 'type 'other)
@@ -229,32 +239,65 @@
                                      (loop (add1 start) (sub1 skip-ws))]
                                     [else start]))
                                 end))
-                   (define m (and (not (eq? style hspace-style))
-                                  (regexp-match-positions #rx"[^ ]" show-str)))
-                   (cond
-                     [(and m (positive? (caar m)))
-                      (list
-                       (element hspace-style (make-string (caar m) #\space))
-                       (element style (substring show-str (caar m))))]
-                     [else
-                      (element style show-str)])]))
-              (let token-loop ([start start] [end end] [skip-ws skip-ws])
+                   ;; `shape-loop` handles whitespace shaping as needed to match the first
+                   ;; line, which might have bold text so that bold hspace is needed to
+                   ;; preserve spacing
+                   (let shape-loop ([sp-start 0] [line-shape line-shape])
+                     (define m (and (not (eq? style hspace-style))
+                                    (regexp-match-positions #rx"[^ ]" show-str sp-start)))
+                     (cond
+                       [(= sp-start (string-length show-str))
+                        null]
+                       [(or (eq? style hspace-style)
+                            (and m (> (caar m) sp-start)))
+                        (define len (- (if m (caar m) (string-length show-str)) sp-start))
+                        (define-values (ws-len ws-style) (line-shape-apply line-shape len))
+                        (define e (if (eq? ws-style 'target)
+                                      ;; make whitespace use the same style as a defined name
+                                      (element 'tt (element value-def-color
+                                                     (for/list ([i (in-range ws-len)]) 'nbsp)))
+                                      ;; normal whitespace
+                                      (element hspace-style (make-string ws-len #\space))))
+                        (cons e
+                              (shape-loop (+ sp-start ws-len) (line-shape-step line-shape e)))]
+                       [else
+                        (define e (element style show-str))
+                        (if (eqv? sp-start 0)
+                            e
+                            (list e))]))]))
+              ;; `one-token-loop` eventually emits the token, but handles newlines;
+              ;; most newlines are separate whitespace tokens, but they are also
+              ;; potentially in the middle of a whitespace or comment token
+              (let one-token-loop ([start start] [end end] [skip-ws skip-ws] [line-shape line-shape])
                 (define nl (regexp-match-positions #rx"\n" str start end))
                 (cond
                   [nl
+                   ;; there's a newline inside the token
                    (cond
                      [(= (caar nl) start)
+                      ;; the newline is at the start of the token
                       (cons 'linebreak
-                            (if (= (cdar nl) end)
-                                (loop state end init-col)
-                                (token-loop (add1 start) end init-col)))]
+                            (let ([line-shape (line-shape-newline line-shape)])
+                              (if (= (cdar nl) end)
+                                  ;; the newline is the whole token, so move to one next
+                                  ;; token, which is the next line
+                                  (token-loop state end init-col line-shape)
+                                  ;; there's more in the token after the newline
+                                  (one-token-loop (add1 start) end init-col line-shape))))]
                      [else
+                      ;; the newline is not at the start of the token, so emit
+                      ;; a partial token
                       (define upto (caar nl))
-                      (cons (make-element start upto skip-ws)
-                            (token-loop upto end (- skip-ws (- upto start))))])]
+                      (define e (make-element start upto skip-ws))
+                      (cons e
+                            (let ([line-shape (line-shape-step line-shape e)])
+                              (one-token-loop upto end (- skip-ws (- upto start)) line-shape)))])]
                   [else
-                   (cons (make-element start end skip-ws)
-                         (loop new-state end (- skip-ws (- end start))))]))]))])))
+                   ;; no newline within the token
+                   (define e (make-element start end skip-ws))
+                   (cons e
+                         (let ([line-shape (line-shape-step line-shape e)])
+                           (token-loop new-state end (- skip-ws (- end start)) line-shape)))]))]))])))
   (define elementss (let loop ([l elements+linebreaks])
                       (cond
                         [(null? l) (list null)]
@@ -307,7 +350,8 @@
 (define tt-comma (element tt-style ", "))
 (define tt-semicolon (element tt-style "; "))
 
-(define (block-string->content-string str col stx-ranges)
+(define (block-string->content-string str/crlf col raw-str stx-ranges)
+  (define str (regexp-replace* #rx"\r\n" str/crlf "\n"))
   ;; strip `:` from the beginning, add spaces
   ;; corresponding to `col`, then strip any blank newlines
   (define (shift-stxes! after delta)
@@ -324,7 +368,10 @@
             (shift-stxes! 0 delta)
             (values (substring str delta (cdadr m))
                     (+ (or col 0) 2)))]
-      [(regexp-match? #rx"^[:\n]" str)
+      [(regexp-match? (if (equal? raw-str "")
+                          #rx"^\n"
+                          #rx"^[:\n]")
+                      str)
        (shift-stxes! 0 1)
        (values (substring str 1) (+ (or col 0) 1))]
       [else
@@ -368,18 +415,6 @@
        (not (symbol? v))
        (content? v)))
 
-(define (add-space stx space-name)
-  (define space (case space-name
-                  [(bind) 'rhombus/binding]
-                  [(impmod) 'rhombus/import]
-                  [(ann) 'rhombus/annotation]
-                  [(stxclass) 'rhombus/syntax-class]
-                  [(folder) 'rhombus/folder]
-                  [else #f]))
-  (if space
-      ((make-interned-syntax-introducer space) stx 'add)
-      stx))
-
 (define (id-space-name id [default-name #f])
   (or (syntax-property id 'typeset-space-name) default-name))
 
@@ -394,7 +429,7 @@
                  (eq? (syntax-e (cadr op)) '|.|)))
           (pair? (cddr elems))
           (identifier? (caddr elems)))
-     (define target (resolve-name-ref (car elems) (caddr elems)))
+     (define target (resolve-name-ref (add-space (car elems) space-name) (caddr elems)))
      (cond
        [target
         (define id (car elems))

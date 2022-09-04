@@ -1,0 +1,60 @@
+#lang rhombus
+import: "check.rhm" open
+
+check:
+  {"a": 1, keyword(~b): 2}
+  Map(["a", 1], [keyword(~b), 2])
+
+check:
+  Map.length({"a": 1, "b": 2})
+  2
+
+check:
+  ~exn
+  Map.length({1, 2, 3})
+  values("contract violation", "expected: Map")
+
+begin:
+  use_static
+  check:
+    {"a": 1, "b": 2}.length()
+    2
+  check:
+    {"a": 1, "b": 2}["a"]
+    1
+  check:
+    Map{"a": 1, "b": 2}.length()
+    2
+  check:
+    Map(["a", 1], ["b", 2]).length()
+    2
+  check:
+    MutableMap{"a": 1, "b": 2}.length()
+    2
+  check:
+    MutableMap(["a", 1], ["b", 2]).length()
+    2
+  check:
+    val map: {"a": 1, "b": 2}
+    map.length()
+    2
+  check:
+    val map :: Map: dynamic({"a": 1, "b": 2})
+    map.length()
+    2
+  check:
+    val map -: Map: dynamic({"a": 1, "b": 2})
+    map.length()
+    2
+  check:
+    val map :: Map.of(String, Integer): dynamic({"a": 1, "b": 2})
+    map.length()
+    2
+
+begin:
+  check:
+    dynamic({"a": 1, "b": 2}).length()
+    2
+  check:
+    dynamic({"a": 1, "b": 2})["a"]
+    1

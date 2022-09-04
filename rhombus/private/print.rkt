@@ -2,7 +2,8 @@
 (require racket/symbol
          racket/keyword
          shrubbery/write
-         (submod "set.rkt" for-ref))
+         (submod "set.rkt" for-ref)
+         "adjust-name.rkt")
 
 (provide (rename-out
           [rhombus-print print]
@@ -10,7 +11,8 @@
          println
          displayln
          (rename-out
-          [current-output-port current_output_port]))
+          [current-output-port current_output_port]
+          [current-error-port current_error_port]))
 
 (module+ redirect
   (provide (struct-out racket-print-redirect)))
@@ -92,12 +94,16 @@
          #f)
        (display "}" op)]
       [(set? v)
-       (display "{" op)
-       (for/fold ([first? #t]) ([v (in-list (hash-map (set-ht v) (lambda (k v) k) #t))])
-         (unless first? (display ", " op))
-         (print v)
-         #f)
-       (display "}" op)]
+       (cond
+         [(eqv? 0 (hash-count (set-ht v)))
+          (display "Set{}" op)]
+         [else
+          (display "{" op)
+          (for/fold ([first? #t]) ([v (in-list (hash-map (set-ht v) (lambda (k v) k) #t))])
+            (unless first? (display ", " op))
+            (print v)
+            #f)
+          (display "}" op)])]
       [(syntax? v)
        (define s (syntax->datum v))
        (define maybe-nested? (let loop ([s s ])
@@ -116,7 +122,7 @@
           (write-shrubbery s op)])
        (display (if maybe-nested? "»'" "'") op)]
       [(procedure? v)
-       (define name (object-name v))
+       (define name (adjust-procedure-name (object-name v) (procedure-realm v)))
        (cond
          [name
           (display "#<function:" op)
@@ -129,17 +135,17 @@
          [(display?)
           (display (symbol->immutable-string v))]
          [else
-          (display "symbol(" op)
+          (display "symbol'" op)
           (write-shrubbery v op)
-          (display ")" op)])]
+          (display "'" op)])]
       [(keyword? v)
        (cond
          [(display?)
           (display (keyword->immutable-string v))]
          [else
-          (display "keyword(" op)
+          (display "keyword'" op)
           (write-shrubbery v op)
-          (display ")" op)])]
+          (display "'" op)])]
       [else
        (cond
          [(display?)

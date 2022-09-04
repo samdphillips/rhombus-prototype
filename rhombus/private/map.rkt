@@ -3,10 +3,15 @@
          (for-syntax racket/base
                      syntax/parse
                      "srcloc.rkt"
-                     "with-syntax.rkt")
+                     "with-syntax.rkt"
+                     "tag.rkt"
+                     shrubbery/print)
          "expression.rkt"
+         "expression+binding.rkt"
          "binding.rkt"
          (submod "annotation.rkt" for-class)
+         (submod "dot.rkt" for-dot-provider)
+         "literal.rkt"
          "static-info.rkt"
          "ref-result-key.rkt"
          "map-ref-set-key.rkt"
@@ -14,63 +19,164 @@
          "composite.rkt"
          "parse.rkt"
          "realm.rkt"
-         "folder.rkt")
+         "reducer.rkt"
+         "name-root.rkt"
+         "setmap-parse.rkt"
+         "dot-parse.rkt"
+         "parens.rkt")
 
-(provide Map
+(provide (rename-out [Map-expr Map])
          (for-space rhombus/binding Map)
          (for-space rhombus/annotation Map)
+         (for-space rhombus/reducer Map)
          (for-space rhombus/static-info Map)
-         (for-space rhombus/folder Map)
 
-         make_map
-         (for-space rhombus/static-info make_map))
+         (rename-out [MutableMap-expr MutableMap])
+         (for-space rhombus/static-info MutableMap))
 
 (module+ for-binding
   (provide (for-syntax parse-map-binding)))
 
 (module+ for-info
-  (provide (for-syntax map-static-info)))
+  (provide (for-syntax map-static-info)
+           Map-build))
 
-(define Map
-  (lambda args
-    (define ht (hash))
-    (let loop ([ht ht] [args args])
-      (cond
-        [(null? args) ht]
-        [(null? (cdr args))
-         (raise-arguments-error* 'Map rhombus-realm
-                                 (string-append "key does not have a value"
-                                                " (i.e., an odd number of arguments were provided)")
-                                 "key" (car args))]
-        [else (loop (hash-set ht (car args) (cadr args)) (cddr args))]))))
+(module+ for-builtin
+  (provide map-method-table))
+
+(define map-method-table
+  (hash 'length (method1 hash-count)
+        'values (method1 hash-values)
+        'keys (method1 hash-keys)))
+
+(define Map-build hashalw) ; inlined version of `Map.from_interleaved`
+
+(define (Map.from_interleaved . args)
+  (define ht (hashalw))
+  (let loop ([ht ht] [args args])
+    (cond
+      [(null? args) ht]
+      [(null? (cdr args))
+       (raise-arguments-error* 'Map rhombus-realm
+                               (string-append "key does not have a value"
+                                              " (i.e., an odd number of arguments were provided)")
+                               "key" (car args))]
+      [else (loop (hash-set ht (car args) (cadr args)) (cddr args))])))
+
+(define (Map . args)
+  (build-map 'Map args))
+
+(define (build-map who args)
+  (define ht (hashalw))
+  (let loop ([ht ht] [args args])
+    (cond
+      [(null? args) ht]
+      [else
+       (define arg (car args))
+       (cond
+         [(and (pair? arg) (pair? (cdr arg)) (null? (cddr arg)))
+          (loop (hash-set ht (car arg) (cadr arg)) (cdr args))]
+         [else
+          (raise-argument-error* who rhombus-realm "[_, _]" arg)])])))
+
+(define-syntax empty-map
+  (make-expression+binding-prefix-operator
+   #'empty-map
+   '((default . stronger))
+   'macro
+   ;; expression
+   (lambda (stx)
+     (syntax-parse stx
+       [(form-id . tail)
+        (values #'#hashalw() #'tail)]))
+   ;; binding
+   (lambda (stx)
+     (syntax-parse stx
+       [(form-id . tail)
+        (values (binding-form #'empty-map-infoer #'#hashalw()) #'tail)]))))
+
+(define-syntax (empty-map-infoer stx)
+  (syntax-parse stx
+    [(_ static-infos datum)
+     (binding-info "Map.empty"
+                   #'empty-map
+                   #'static-infos
+                   #'()
+                   #'empty-map-matcher
+                   #'literal-bind-nothing
+                   #'datum)]))
+
+(define-syntax (empty-map-matcher stx)
+  (syntax-parse stx
+    [(_ arg-id datum IF success fail)
+     #'(IF (and (hash? arg-id) (eqv? 0 (hash-count arg-id)))
+           success
+           fail)]))
+
+(define-name-root Map-expr
+  #:fields
+  ([empty empty-map]
+   [length hash-count]
+   [keys hash-keys]
+   [values hash-values])
+  #:root
+  (expression-transformer
+   #'Map
+   (lambda (stx)
+     (syntax-parse stx
+       #:datum-literals (braces)
+       [(form-id (~and content (braces . _)) . tail)
+        (define-values (shape args) (parse-setmap-content #'content
+                                                          #:shape 'map
+                                                          #:who (syntax-e #'form-id)))
+        (values (wrap-static-info*
+                 (quasisyntax/loc stx
+                   (Map-build #,@args))
+                 map-static-info)
+                #'tail)]
+       [(_ . tail) (values #'Map #'tail)]))))
 
 (define-for-syntax map-static-info
   #'((#%map-ref hash-ref)
-     (#%map-set! hash-set!)
      (#%map-append hash-append)
-     (#%sequence-constructor in-hash)))
+     (#%sequence-constructor in-hash)
+     (#%dot-provider hash-instance)))
 
-(define-annotation-syntax Map
-  (annotation-constructor #'Map #'hash? map-static-info
-                          2
-                          (lambda (arg-id predicate-stxs)
-                            #`(for/and ([(k v) (in-hash #,arg-id)])
-                                (and (#,(car predicate-stxs) k)
-                                     (#,(cadr predicate-stxs) v))))
-                          (lambda (static-infoss)
-                            #`((#%ref-result #,(cadr static-infoss))))))
+(define-for-syntax mutable-map-static-info
+  #`((#%map-set! hash-set!)
+     . #,map-static-info))
+
+(define-annotation-constructor Map
+  ()
+  #'hash? map-static-info
+  2
+  (lambda (arg-id predicate-stxs)
+    #`(for/and ([(k v) (in-hash #,arg-id)])
+        (and (#,(car predicate-stxs) k)
+             (#,(cadr predicate-stxs) v))))
+  (lambda (static-infoss)
+    #`((#%ref-result #,(cadr static-infoss)))))
+
+(define-syntax hash-instance
+  (dot-provider-more-static
+   (dot-parse-dispatch
+    (lambda (field-sym ary 0ary nary fail-k)
+      (case field-sym
+        [(length) (0ary #'hash-count)]
+        [(keys) (0ary #'hash-keys)]
+        [(values) (0ary #'hash-values)]
+        [else #f])))))
 
 (define-static-info-syntax Map
-  (#%call-result ((#%map-ref hash-ref)
-                  (#%sequence-constructor in-hash))))
+  (#%call-result #,map-static-info))
 
-(define-folder-syntax Map
-  (folder-transformer
+(define-reducer-syntax Map
+  (reducer-transformer
    (lambda (stx)
      (syntax-parse stx
        [(_)
         #`[begin
-           ([ht #hash()])
+           ([ht #hashalw()])
            (add-to-map ht)
            #,map-static-info]]))))
 
@@ -78,45 +184,65 @@
   (let-values ([(k v) e])
     (hash-set ht k v)))
 
-(define make_map
+(define MutableMap
   (lambda args
-    (hash-copy (apply Map args))))
+    (hash-copy (build-map 'MutableMap args))))
 
-(define-static-info-syntax make_map
-  (#%call-result ((#%map-ref hash-ref)
-                  (#%map-set! hash-set!)
-                  (#%sequence-constructor in-hash))))
+(define-syntax MutableMap-expr
+  (expression-transformer
+   #'MutableMap
+   (lambda (stx)
+     (syntax-parse stx
+       #:datum-literals (braces)
+       [(form-id (~and content (braces . _)) . tail)
+        (define-values (shape args) (parse-setmap-content #'content
+                                                          #:shape 'map
+                                                          #:who (syntax-e #'form-id)))
+        (values (wrap-static-info*
+                 (quasisyntax/loc stx
+                   (hash-copy (Map-build #,@args)))
+                 mutable-map-static-info)
+                #'tail)]
+       [(_ . tail) (values #'MutableMap #'tail)]))))
 
-(define-binding-syntax Map
+(define-static-info-syntax MutableMap
+  (#%call-result #,mutable-map-static-info))
+
+(define-name-root Map
+  #:space rhombus/binding
+  #:fields ([empty empty-map])
+  #:root
   (binding-prefix-operator
    #'Map
    '((default . stronger))
    'macro
    (lambda (stx)
      (syntax-parse stx
-       #:datum-literals (parens)
-       [(form-id (parens arg ...) . tail)
+       [(form-id (~and content (_::braces . _)) . tail)
+        (parse-map-binding (syntax-e #'form-id) stx "braces")]
+       [(form-id (_::parens arg ...) . tail)
         (let loop ([args (syntax->list #'(arg ...))] [keys '()] [vals '()])
           (cond
             [(null? args) (generate-map-binding (reverse keys) (reverse vals) #'tail)]
-            [(null? (cdr args))
-             (raise-syntax-error #f
-                                 (string-append "key expression does not have a value expression"
-                                                " (i.e., an odd number of forms were provided)")
-                                 stx
-                                 (car args))]
-            [else (loop (cddr args) (cons (car args) keys) (cons (cadr args) vals))]))]))))
+            [else
+             (syntax-parse (car args)
+               #:datum-literals (group brackets)
+               [(group (brackets key val))
+                (loop (cdr args) (cons #'key keys) (cons #'val vals))]
+               [_ (raise-syntax-error #f
+                                      "expected [<key-expr>, <value-binding>]"
+                                      stx
+                                      (car args))])]))]))))
 
-(define-for-syntax (parse-map-binding stx opener+closer)
+(define-for-syntax (parse-map-binding who stx opener+closer)
   (syntax-parse stx
     #:datum-literals (parens block group op)
     [(form-id (_ (group key-e ... (block (group val ...))) ...) . tail)
-     (generate-map-binding #'((group key-e ...) ...) #'((group val ...) ...) #'tail)]
+     (generate-map-binding (syntax->list #`((#,group-tag key-e ...) ...)) #`((#,group-tag val ...) ...) #'tail)]
     [(form-id wrong . tail)
-     (raise-syntax-error #f
+     (raise-syntax-error who
                          (format "bad key-value combination within ~a" opener+closer)
-                         (relocate (span-srcloc #'form-id #'wrong)
-                                   #'(form-id wrong)))]))
+                         #'wrong)]))
 
 (define-for-syntax (generate-map-binding keys vals tail)
   (with-syntax ([(key ...) keys]
@@ -124,7 +250,7 @@
                 [tail tail])
     (define tmp-ids (generate-temporaries #'(key ...)))
     (define-values (composite new-tail)
-      ((make-composite-binding-transformer "Map"
+      ((make-composite-binding-transformer (cons "Map" (map shrubbery-syntax->string keys))
                                            #'(lambda (v) #t)
                                            (for/list ([tmp-id (in-list tmp-ids)])
                                              #`(lambda (v) #,tmp-id))
@@ -183,10 +309,10 @@
   (syntax-parse stx
     [(_ map1 map2)
      (syntax-parse (unwrap-static-infos #'map2)
-       #:literals (Map)
-       [(Map k:keyword v)
+       #:literals (Map-build)
+       [(Map-build k:keyword v)
         #'(hash-set map1 'k v)]
-       [(Map k v)
+       [(Map-build k v)
         #'(hash-set map1 k v)]
        [_
         #'(hash-append/proc map1 map2)])]))

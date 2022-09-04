@@ -10,7 +10,8 @@
                     [local-table-of-contents local_table_of_contents])
          scribble/private/manual-defaults
          "private/rhombus.rhm"
-         "private/include.rkt")
+         "private/rhombus_typeset.rhm"
+         "private/include.rhm")
 
 (provide (rename-out [module-begin #%module-begin])
          (except-out (all-from-out scribble/base)
@@ -20,7 +21,8 @@
          pkg
          include_section
          (all-from-out "private/rhombus.rhm"
-                       "private/include.rkt"))
+                       "private/rhombus_typeset.rhm"
+                       "private/include.rhm"))
 (define-syntax-rule (rhombus-out)
   (begin
     (require (except-in rhombus #%module-begin))
@@ -69,6 +71,7 @@
         #:begin [(module configure-runtime racket/base (require rhombus/runtime-config))]
         #:post-process post-process
         (rhombus-forwarding-sequence
+         #:module #f #f
          (scribble-rhombus-top g-unwrapped ...)))]))
 
 ;; Includes shortcut for string literals:
@@ -79,7 +82,7 @@
        (loop #'(t . rest)
              (cons #'str accum))]
       [(_ . rest)
-       (define top #`(rhombus-top-step scribble-rhombus-top . rest))
+       (define top #`(rhombus-top-step scribble-rhombus-top #t . rest))
        (if (null? accum)
            top
            #`(begin

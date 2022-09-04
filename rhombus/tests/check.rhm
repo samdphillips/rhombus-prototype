@@ -1,0 +1,70 @@
+#lang rhombus/and_meta
+import:
+  "call-capture-exn.rkt" open
+
+export:
+ check
+
+meta:
+  syntax.class check_mode
+  | '~print'
+  | '~equal'
+  | '~exn'
+  | '~eval'
+  | '~eval_print'
+  | '~eval_exn'
+
+expr.macro
+| 'check:
+     $(mode :: check_mode)
+     $result1
+     ...
+     $result2':
+    values('check_same($(match '$mode ...'
+                         | '~eval' || '~eval_exn' || '~eval_print':
+                            'fun():
+                               eval_test(Syntax.literal '$result1
+                                                         ...')'
+                         | ~else:
+                            'fun ():
+                              $result1
+                              ...'),
+                       fun(): $result2,
+                       ~mode: keyword($mode ...))',
+           '')
+| 'check:
+     $result1
+     ...
+     $result2':
+    values('check:
+              ~equal
+              $result1
+              ...
+              $result2',
+           '')
+
+fun check_same(thunk, expected_thunk, ~mode: mode):
+  val values(got, exn_msg): call_capturing_exn(thunk)
+  val expected: call_capturing_values(expected_thunk)
+  val ok:
+    match mode
+    | keyword(~print) || keyword(~eval_print):
+        !exn_msg && (("" +& got) == ("" +& expected))
+    | keyword(~equal) || keyword(~eval):
+        !exn_msg && (got == expected)
+    | keyword(~exn) || keyword(~eval_exn):
+        exn_msg && does_contain_each(expected, exn_msg)
+        exn_msg && does_contain_each(expected, exn_msg)
+  if ok
+  | #void
+  | fun
+    | values_str([v]): v
+    | values_str(lst): "values " +& lst
+    display("failed\n"
+              +& "  expected: " +& (if mode == keyword(~exn) | "exception " | "") +& values_str(expected) +& "\n"
+              +& "  got: " +& (if exn_msg | "exception " | "") +& (if exn_msg | exn_msg | values_str(got)) +&  "\n",
+            current_error_port())
+
+fun eval_test(stx):
+  parameterize {current_toplevel: make_rhombus_toplevel()}:
+    eval(Syntax.strip(stx))

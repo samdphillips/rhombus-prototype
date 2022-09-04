@@ -3,16 +3,16 @@
     "util.rhm" open
     "common.rhm" open)
 
-@title[~tag: "bind-macro"]{Binding and Annotation Macros}
+@title(~tag: "bind-macro"){Binding and Annotation Macros}
 
-Macros can extend binding-position syntax, too, via @rhombus[bind.rule] and
-@rhombus[bind.macro]. In the simplest case, a binding operator is implemented
-by expanding to other binding operators, like this definition of @rhombus[$]
+Macros can extend binding-position syntax, too, via @rhombus(bind.rule) and
+@rhombus(bind.macro). In the simplest case, a binding operator is implemented
+by expanding to other binding operators, like this definition of @rhombus($)
 as a prefix operator to constrain a pattern to number inputs:
 
 @(rhombusblock:
     import:
-      rhombus/macro: open
+      rhombus/meta open
 
     bind.rule '$ $n':
       ~parsed_right
@@ -26,16 +26,16 @@ as a prefix operator to constrain a pattern to number inputs:
 More expressive binding operators can use a lower-level protocol where a
 binding is represented by transformers that generate checking and
 binding code. It gets complicated, and it’s tied up with the propagation
-of static information, so the details are in @secref["bind-macro-protocol"].
+of static information, so the details are in @secref("bind-macro-protocol").
 After an expressive set of binding forms are implemented with the
 low-level interface, however, many others can be implemented though
 simple expansion.
 
-The @rhombus[annotation.macro] form is similar to @rhombus[bind.macro], but for
+The @rhombus(annotation.macro) form is similar to @rhombus(bind.macro), but for
 annotations. 
 
 @(rhombusblock:
-    use_static_dot
+    use_static
 
     annotation.rule 'PosnList': 'List.of(Posn)'
 
@@ -43,5 +43,5 @@ annotations.
       ps[n].x
   )
 
-For details on the low-level annotation protocol, see @secref["annotation-macro"].
+For details on the low-level annotation protocol, see @secref("annotation-macro").
 

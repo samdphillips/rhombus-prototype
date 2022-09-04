@@ -2,34 +2,63 @@
 (require (for-syntax racket/base
                      syntax/parse
                      syntax/stx)
+         "expression.rkt"
          "binding.rkt"
          (submod "annotation.rkt" for-class)
+         (submod "dot.rkt" for-dot-provider)
          "static-info.rkt"
          "map-ref-set-key.rkt"
          "call-result-key.rkt"
-         "composite.rkt")
+         "composite.rkt"
+         "name-root.rkt"
+         "dot-parse.rkt")
 
 (provide Array
          (for-space rhombus/binding Array)
-         (for-space rhombus/annotation Array)
-         (for-space rhombus/static-info Array))
+         (for-space rhombus/annotation Array))
 
-(define Array vector)
+(module+ for-builtin
+  (provide array-method-table))
 
-(define-annotation-syntax Array
-  (annotation-constructor #'Array #'vector? #'((#%map-ref vector-ref)
-                                               (#%map-set! vector-set!))
-                          1
-                          (lambda (arg-id predicate-stxs)
-                            #`(for/and ([e (in-vector #,arg-id)])
-                                (#,(car predicate-stxs) e)))
-                          (lambda (static-infoss)
-                            #`((#%ref-result #,(car static-infoss))))))
+(define array-method-table
+  (hash 'length (method1 vector-length)))
 
-(define-static-info-syntax Array
-  (#%call-result ((#%map-ref vector-ref)
-                  (#%map-set! vector-set!)
-                  (#%sequence-constructor in-vector))))
+(define-for-syntax array-static-infos
+  #'((#%map-ref vector-ref)
+     (#%map-set! vector-set!)
+     (#%sequence-constructor in-vector)
+     (#%dot-provider array-instance)))
+
+(define-name-root Array
+  #:fields
+  ([make make-vector]
+   [length vector-length])
+  #:root
+  (expression-transformer
+   #'Array
+   (lambda (stx)
+     (syntax-parse stx
+       [(_ . tail) (values #'vector #'tail)]))))
+
+(define-annotation-constructor Array
+  () #'vector? array-static-infos
+  1
+  (lambda (arg-id predicate-stxs)
+    #`(for/and ([e (in-vector #,arg-id)])
+        (#,(car predicate-stxs) e)))
+  (lambda (static-infoss)
+    #`((#%ref-result #,(car static-infoss)))))
+
+(define-static-info-syntax vector
+  (#%call-result #,array-static-infos))
+
+(define-syntax array-instance
+  (dot-provider-more-static
+   (dot-parse-dispatch
+    (lambda (field-sym ary 0ary nary fail-k)
+      (case field-sym
+        [(length) (0ary #'vector-length)]
+        [else #f])))))
 
 (define-binding-syntax Array
   (binding-prefix-operator
@@ -53,3 +82,6 @@
                                                #'())
                                              #:ref-result-info? #t)
          stx)]))))
+
+(define-static-info-syntax make-vector
+  (#%call-result #,array-static-infos))

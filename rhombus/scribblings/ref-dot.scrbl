@@ -3,22 +3,21 @@
 
 @title{Dot}
 
-@doc[
+@doc(
   expr.macro '$target . $identifier'
-]{
+){
 
- Accesses a component of @rhombus[target], either statically or
- dyanamically. The access is static when @rhombus[target] is a @tech{dot
-  provider}.
+ Accesses a component of @rhombus(target), either statically or
+ dynamically. The access is static when @rhombus(target) is a
+ @tech{dot provider}.
 
-}
+ See also @rhombus(use_static).
 
-
-@doc[
-  defn.macro 'use_static_dot'
-]{
-
- (Re-)defines @rhombus[.] so that it accesses a component of a target
- only when the access can be resolved statically.
+@examples(
+ [1, 2, 3].length(),
+ class Posn(x, y),
+ val p: Posn(1, 2),
+ p.x
+)
 
 }

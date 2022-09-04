@@ -4,22 +4,27 @@
                      syntax/boundmap
                      "operator-parse.rkt"
                      "consistent.rkt"
-                     "srcloc.rkt"
-                     "syntax-class-mixin.rkt")
-         (rename-in "quasiquote.rkt"
-                    [... rhombus...])
-         (submod "quasiquote.rkt" convert)
+                     "syntax-class-mixin.rkt"
+                     "syntax-rhs.rkt"
+                     (for-syntax racket/base
+                                 syntax/parse))
          "parse.rkt"
          "definition.rkt"
          "function.rkt"
+         "name-root-ref.rkt"
+         "dollar.rkt"
          ;; because we generate compile-time code:
-         (for-syntax "parse.rkt"))
+         (for-syntax "parse.rkt")
+         "op-literal.rkt"
+         "binding.rkt"
+         "dotted-sequence-parse.rkt"
+         "parens.rkt")
 
-(provide (for-syntax make-operator-definition-transformer
-                     make-identifier-syntax-definition-transformer
-                     make-identifier-syntax-definition-sequence-transformer
-
-                     parse-operator-definition
+(provide define-operator-definition-transformer
+         define-identifier-syntax-definition-transformer
+         define-identifier-syntax-definition-sequence-transformer
+         
+         (for-syntax parse-operator-definition
                      parse-operator-definitions
                      :operator-syntax-quote
 
@@ -66,11 +71,6 @@
     (for ([same (in-list same-on-rights)])
       (add! same 'same-on-right))
     (datum->syntax #f prec))
-
-  (define-syntax-class :operator-definition-group
-    #:datum-literals (op group)
-    (pattern (group (op $) _ _::operator-or-identifier . _))
-    (pattern (group ::operator-or-identifier . _)))
 
   (define-syntax-class-mixin operator-options
     #:datum-literals (op block group
@@ -136,10 +136,28 @@
     self-options
     parsed-right-options)
 
-  (define-splicing-syntax-class :operator-syntax-quote
+  (define-syntax-class :$+1
+    (pattern $-id
+             #:when (free-identifier=? #'$ (in-binding-space #'$-id)
+                                       (syntax-local-phase-level) (add1 (syntax-local-phase-level)))))
+
+  (define-splicing-syntax-class :operator-or-identifier-or-$
+    #:description "operator-macro pattern"
     #:datum-literals (op parens group quotes)
-    (pattern (quotes (~and g (group (op $) _ _::operator-or-identifier . _))))
-    (pattern (quotes (~and g (group ::operator-or-identifier . _)))))
+    (pattern (~seq op-name::operator-or-identifier)
+             #:when (not (free-identifier=? (in-binding-space #'op-name.name) #'$
+                                            (add1 (syntax-local-phase-level)) (syntax-local-phase-level)))
+             #:attr name #'op-name.name)
+    (pattern (~seq (parens (group seq::dotted-operator-or-identifier-sequence)))
+             #:with id::dotted-operator-or-identifier #'seq
+             #:attr name #'id.name)
+    (pattern (~seq (op _::$+1) (parens (group (quotes (group (op (~and name $)))))))))
+
+  (define-splicing-syntax-class :operator-syntax-quote
+    #:description "operator-macro pattern"
+    #:datum-literals (op parens group)
+    (pattern (_::quotes (~and g (group (op _::$+1) _:identifier _::operator-or-identifier-or-$ . _))))
+    (pattern (_::quotes (~and g (group _::operator-or-identifier-or-$ . _)))))
 
   (define (convert-prec prec)
     #`(list #,@(for/list ([p (in-list (syntax->list prec))])
@@ -148,265 +166,217 @@
                    [(op . spec) #`(cons (quote-syntax op) 'spec)]))))
 
   (define (convert-assc assc)
-    #`'#,(string->symbol (keyword->string (syntax-e assc))))
-  
-  (struct parsed (fixity name opts-stx prec-stx assc-stx parsed-right?
-                         ;; implementation is function stx if `parsed-right?`,
-                         ;; or a clause over #'self and maybe #'left otherwise
-                         impl)))
+    #`'#,(string->symbol (keyword->string (syntax-e assc)))))
 
 ;; parse one case (possibly the only case) in a macro definition
 (define-for-syntax (parse-one-macro-definition kind)
   (lambda (g rhs)
-    (define (macro-clause self-id left-ids tail-pattern rhs)
-      (define-values (pattern idrs can-be-empty?)
-        (if (eq? kind 'rule)
-            (convert-pattern #`(multi (group #,@tail-pattern (op $) tail (op ......))))
-            (convert-pattern #`(multi (group . #,tail-pattern)) #:as-tail? #t)))
-      (with-syntax ([((id id-ref) ...) idrs]
-                    [(left-id ...) left-ids])
-        (define body
-          (if (eq? kind 'rule)
-              (let ([ids (cons self-id (append left-ids (syntax->list #'(id ...))))])
-                #`(values #,(convert-rule-template rhs ids) tail))
-              #`(rhombus-body-expression #,rhs)))
-        #`[#,pattern
-           (let ([id id-ref] ... [#,self-id self] [left-id left] ...)
-             #,body)]))
-    (define (convert-rule-template block ids)
-      (syntax-parse block
-        #:datum-literals (block group quotes op)
-        [(block (group (quotes template)))
-         (convert-template #'(multi template)
-                           #:rhombus-expression #'rhombus-expression
-                           #:check-escape (lambda (e)
-                                            (unless (and (identifier? e)
-                                                         (for/or ([id (in-list ids)])
-                                                           (free-identifier=? e id)))
-                                              (raise-syntax-error 'template
-                                                                  "expected an identifier bound by the pattern"
-                                                                  e))))]
-        [(block (group e)) (raise-syntax-error 'template "invalid result template" #'e)]))
-    (define (extract-pattern-id tail-pattern)
-      (syntax-parse tail-pattern
-        #:datum-literals (op)
-        #:literals ($)
-        [((op $) id:identifier) #'id]))
     (syntax-parse g
-      #:datum-literals (group op)
-      #:literals ($ rhombus...)
+      #:datum-literals (group op parens quotes)
       ;; infix protocol
-      [(group (op $) left:identifier
-              op-name::operator-or-identifier
+      [(group (op _::$+1) left:identifier
+              op-name::operator-or-identifier-or-$
               . tail-pattern)
        (syntax-parse rhs
          [((~and tag block) opt::macro-infix-operator-options rhs ...)
-          (parsed 'infix
-                  #'op-name.name
-                  #'opt
-                  #'opt.prec
-                  #'opt.assc
-                  (syntax-e #'opt.parsed-right?)
-                  (cond
-                    [(syntax-e #'opt.parsed-right?)
-                     (define right-id (extract-pattern-id #'tail-pattern))
-                     #`(lambda (left #,right-id opt.self-id)
-                         #,(if (eq? kind 'rule)
-                               (convert-rule-template #'(tag rhs ...)
-                                                      (list #'left right-id #'opt.self-id))
-                               #`(rhombus-body-expression (tag rhs ...))))]
-                    [else
-                     (macro-clause #'opt.self-id (list #'left)
-                                   #'tail-pattern
-                                   #'(tag rhs ...))]))])]
+          #`(pre-parsed op-name.name
+                        infix
+                        #,kind
+                        opt
+                        #,(convert-prec #'opt.prec)
+                        #,(convert-assc #'opt.assc)
+                        opt.parsed-right?
+                        [tail-pattern
+                         opt.self-id
+                         left
+                         (tag rhs ...)])])]
       ;; prefix protocol
-      [(group op-name::operator-or-identifier
+      [(group op-name::operator-or-identifier-or-$
               . tail-pattern)
        (syntax-parse rhs
          [((~and tag block) opt::macro-prefix-operator-options rhs ...)
-          (parsed 'prefix
-                  #'op-name.name
-                  #'opt
-                  #'opt.prec
-                  #f
-                  (syntax-e #'opt.parsed-right?)
-                  (cond
-                    [(syntax-e #'opt.parsed-right?)
-                     (define arg-id (extract-pattern-id #'tail-pattern))
-                     #`(lambda (#,arg-id opt.self-id)
-                         #,(if (eq? kind 'rule)
-                               (convert-rule-template #'(tag rhs ...)
-                                                      (list arg-id #'opt-self-id))
-                               #`(rhombus-body-expression (tag rhs ...))))]
-                    [else
-                     (macro-clause #'opt.self-id '()
-                                   #'tail-pattern
-                                   #'(tag rhs ...))]))])]
-      ;; nofix protocol
-      [op-name::operator-or-identifier
+          #`(pre-parsed op-name.name
+                        prefix
+                        #,kind
+                        opt
+                        #,(convert-prec #'opt.prec)
+                        #f
+                        opt.parsed-right?
+                        [tail-pattern
+                         opt.self-id
+                         (tag rhs ...)])])]
+      ;; nofix protocol - no longer supported
+      #;
+      [op-name::operator-or-identifier-or-$
        (syntax-parse rhs
          [((~and tag block) opt::self-prefix-operator-options rhs ...)
-          (parsed 'prefix
-                  #'op-name.name
-                  #'opt
-                  #'opt.prec
-                  #f
-                  #f
-                  #`[_ (let ([opt.self-id self])
-                         (values #,(if (eq? kind 'rule)
-                                       (convert-rule-template #'(tag rhs ...)
-                                                              (list #'opt.self-id))
-                                       #`(rhombus-body-at tag rhs ...))
-                                 tail))])])])))
+          #`(pre-parsed op-name.name
+                        nofix
+                        #,kind
+                        opt
+                        #,(convert-prec #'opt.prec)
+                        #f
+                        #f
+                        [opt.self-id
+                         (tag rhs ...)])])])))
 
-;; combine previously parsed cases (possibly the only case) in a macro
-;; definition that are all either prefix or infix
-(define-for-syntax (build-cases ps prefix? make-id)
-  (define p (car ps))
-  #`(#,make-id
-     (quote-syntax #,(parsed-name p))
-     #,(convert-prec (parsed-prec-stx p))
-     #,(if (parsed-parsed-right? p)
-           #''automatic
-           #''macro)
-     (let ([#,(parsed-name p)
-            #,(if (parsed-parsed-right? p)
-                  (parsed-impl p)
-                  #`(lambda (#,@(if prefix? '() (list #'left)) tail self)
-                      (syntax-parse (respan-empty self tail)
-                        #,@(map parsed-impl ps))))])
-       #,(parsed-name p))
-     #,@(if prefix?
-            '()
-            (list (convert-assc (parsed-assc-stx p))))))
+(define-for-syntax (pre-parsed-name pre-parsed)
+  (syntax-parse pre-parsed
+    [(_ name . _) #'name]))
 
 ;; single-case macro definition:
-(define-for-syntax (parse-operator-definition kind g rhs
-                                              in-space make-prefix-id make-infix-id)
+(define-for-syntax (parse-operator-definition kind g rhs in-space compiletime-id)
   (define p ((parse-one-macro-definition kind) g rhs))
-  (define op (parsed-name p))
-  (define prefix? (eq? 'prefix (parsed-fixity p)))
-  (define make-id (if prefix? make-prefix-id make-infix-id))
-  #`(define-syntax #,(in-space op) #,(build-cases (list p) prefix? make-id)))
+  (define op (pre-parsed-name p))
+  #`(define-syntax #,(in-space op) (#,compiletime-id #,p)))
 
 ;; multi-case macro definition:
-(define-for-syntax (parse-operator-definitions kind stx gs rhss
-                                               in-space make-prefix-id make-infix-id prefix+infix-id)
+(define-for-syntax (parse-operator-definitions kind stx gs rhss in-space compiletime-id)
   (define ps (map (parse-one-macro-definition kind)
                   gs rhss))
-  (check-consistent stx (map parsed-name ps) "operator")
-  (define prefixes (for/list ([p (in-list ps)] #:when (eq? 'prefix (parsed-fixity p))) p))
-  (define infixes (for/list ([p (in-list ps)] #:when (eq? 'infix (parsed-fixity p))) p))
-  (define (check-fixity-consistent what options ps)
-    (unless ((length ps) . < . 2)
-      (for ([p (in-list ps)]
-            [i (in-naturals)])
-        (when (parsed-parsed-right? p)
-          (raise-syntax-error #f
-                              (format "multiple ~a cases not allowed with a 'parsed_right' case"
-                                      what)
-                              stx))
-        (unless (zero? i)
-          (when (for*/or ([d (syntax->list (parsed-opts-stx p))]
-                          [d (in-list (or (syntax->list d) (list d)))])
-                  (and (keyword? (syntax-e d))
-                       (not (eq? '#:op_stx (syntax-e d)))))
-            (raise-syntax-error #f
-                                (format "~a options not allowed after first ~a case"
-                                        options what)
-                                stx))))))
-  (check-fixity-consistent "prefix" "precedence" prefixes)
-  (check-fixity-consistent "infix" "precedence and associativity" infixes)
-  #`(define-syntax #,(in-space (parsed-name (car ps)))
-      #,(cond
-          [(null? prefixes) (build-cases infixes #f make-infix-id)]
-          [(null? infixes) (build-cases prefixes #t make-prefix-id)]
-          [else #`(#,prefix+infix-id
-                   #,(build-cases prefixes #t make-prefix-id)
-                   #,(build-cases infixes #f make-infix-id))])))
+  (check-consistent stx (map pre-parsed-name ps) "operator")
+  #`(define-syntax #,(in-space (pre-parsed-name (car ps)))
+      (#,compiletime-id #,stx #,@ps)))
 
-(define-for-syntax (make-operator-definition-transformer protocol
-                                                         in-space
-                                                         make-prefix-id
-                                                         make-infix-id
-                                                         prefix+infix-id)
+;; An operator definition transformer involves a phase-0 binding for
+;; the definition form, and a phase-1 binding for the transformer for
+;; the compile-time right-hand side
+(define-syntax (define-operator-definition-transformer stx)
+  (syntax-parse stx
+    #:literals (syntax quote)
+    [(_ id
+        'protocol
+        in-space-expr
+        #'make-prefix-id
+        #'make-infix-id
+        #'prefix+infix-id)
+     #`(begin
+         (define-syntax id
+           (make-operator-definition-transformer-runtime 'protocol
+                                                         in-space-expr
+                                                         #'compiletime-id))
+         (begin-for-syntax
+           (define-syntax compiletime-id
+             (make-operator-definition-transformer-compiletime #'make-prefix-id
+                                                               #'make-infix-id
+                                                               #'prefix+infix-id))))]))
+
+(define-for-syntax (make-operator-definition-transformer-runtime protocol
+                                                                 in-space
+                                                                 compiletime-id)
   (definition-transformer
     (lambda (stx)
       (define (template->macro protocol) (if (eq? protocol 'template) 'macro protocol))
-      (syntax-parse stx
+      (syntax-parse (replace-head-dotted-name stx)
         #:datum-literals (parens group block alts op)
         [(form-id ((~and alts-tag alts) (block (group q::operator-syntax-quote
                                                       (~and rhs (block body ...))))
                                         ...+))
-         (list (parse-operator-definitions (template->macro protocol)
+         (define kind (template->macro protocol))
+         (list (parse-operator-definitions kind
                                            stx
                                            (syntax->list #'(q.g ...))
                                            (syntax->list #'(rhs ...))
                                            in-space
-                                           make-prefix-id
-                                           make-infix-id
-                                           prefix+infix-id))]
+                                           compiletime-id))]
         [(form-id q::operator-syntax-quote
                   (~and rhs (block body ...)))
          (list (parse-operator-definition (template->macro protocol)
                                           #'q.g
                                           #'rhs
                                           in-space
-                                          make-prefix-id
-                                          make-infix-id))]))))
+                                          compiletime-id))]))))
+
+(begin-for-syntax
+  (define-for-syntax (make-operator-definition-transformer-compiletime make-prefix-id
+                                                                       make-infix-id
+                                                                       prefix+infix-id)
+    (lambda (stx)
+      (syntax-parse stx
+        #:datum-literals (parens group block alts op)
+        [(form-id pre-parsed)
+         (parse-operator-definition-rhs #'pre-parsed
+                                        make-prefix-id
+                                        make-infix-id)]
+        [(form-id orig-stx pre-parsed ...)
+         (parse-operator-definitions-rhs #'orig-stx (syntax->list #'(pre-parsed ...))
+                                         make-prefix-id
+                                         make-infix-id
+                                         prefix+infix-id)]))))
 
 ;; ----------------------------------------
 
 (begin-for-syntax
   (define-syntax-class :identifier-syntax-quote
-    #:datum-literals (op quotes)
-    (pattern (quotes g::identifier-definition-group)))
+    #:datum-literals (op)
+    (pattern (_::quotes g::identifier-definition-group)))
 
   (define-syntax-class :identifier-definition-group
     #:datum-literals (group)
     (pattern (group _:identifier . _)))
   
   (define-splicing-syntax-class :identifier-sequence-syntax-quote
-    #:datum-literals (op block quotes group)
-    (pattern (quotes g::identifier-definition-group
-                     . gs))))
+    #:datum-literals (op block group)
+    (pattern (_::quotes g::identifier-definition-group
+                        . gs))))
 
-(define-for-syntax (parse-transformer-definition g self-id rhs
-                                                 in-space make-transformer-id
-                                                 #:tail-ids [tail-ids '()]
-                                                 #:wrap-for-tail [wrap-for-tail values])
+(define-for-syntax (parse-transformer-definition g rhs)
   (syntax-parse g
-    #:datum-literals (group op)
-    #:literals ($ rhombus...)
+    #:datum-literals (group)
     [(group id:identifier . tail-pattern)
-     (define-values (pattern idrs can-be-empty?) (convert-pattern #`(multi (group . tail-pattern)) #:as-tail? #t))
-     (with-syntax ([((p-id id-ref) ...) idrs])
-       #`(define-syntax #,(in-space #'id)
-           (#,make-transformer-id
-            (let ([id (lambda (tail #,@tail-ids #,self-id)
-                        (syntax-parse (respan-empty #,self-id tail)
-                          [#,pattern
-                           (let ([p-id id-ref] ...)
-                             #,(wrap-for-tail
-                                #`(rhombus-body-expression #,rhs)))]))])
-              id))))]))
+     #`(pre-parsed id
+                   tail-pattern
+                   #,rhs)]))
 
-(define-for-syntax (make-identifier-syntax-definition-transformer in-space
-                                                                  make-transformer-id)
+(define-syntax (define-identifier-syntax-definition-transformer stx)
+  (syntax-parse stx
+    #:literals (syntax)
+    [(_ id in-space-expr
+        #'make-transformer-id)
+     #`(begin
+         (define-syntax id (make-identifier-syntax-definition-transformer-runtime in-space-expr
+                                                                                  #'compiletime-id))
+         (begin-for-syntax
+           (define-syntax compiletime-id
+             (make-identifier-syntax-definition-transformer-compiletime #'make-transformer-id))))]))
+
+(define-for-syntax (make-identifier-syntax-definition-transformer-runtime in-space
+                                                                          compiletime-id)
   (definition-transformer
     (lambda (stx)
-     (syntax-parse stx
-       #:datum-literals (parens group block alts op)
-       [(form-id q::identifier-syntax-quote
-                 (~and rhs (block
-                            (~optional (group #:op_stx (block (group self-id:identifier)))
-                                       #:defaults ([self-id #'self]))
-                            body ...)))
-        (list (parse-transformer-definition #'q.g #'self-id #'rhs
-                                            in-space make-transformer-id))]))))
+      (syntax-parse stx
+        #:datum-literals (parens group block alts op)
+        [(form-id q::identifier-syntax-quote
+                  (~and rhs (block
+                             (~optional (group #:op_stx (block (group self-id:identifier)))
+                                        #:defaults ([self-id #'self]))
+                             body ...)))
+         (define p (parse-transformer-definition #'q.g #'rhs))
+         (list #`(define-syntax #,(in-space (pre-parsed-name p))
+                   (#,compiletime-id #,p)))]))))
 
-(define-for-syntax (make-identifier-syntax-definition-sequence-transformer in-space
-                                                                           make-transformer-id)
+(begin-for-syntax
+  (define-for-syntax (make-identifier-syntax-definition-transformer-compiletime make-transformer-id)
+    (lambda (stx)
+      (syntax-parse stx
+        [(_ pre-parsed)
+         (parse-transformer-definition-rhs #'pre-parsed #'self-id
+                                           make-transformer-id)]))))
+
+(define-syntax (define-identifier-syntax-definition-sequence-transformer stx)
+  (syntax-parse stx
+    #:literals (syntax)
+    [(_ id in-space-expr
+        #'make-transformer-id)
+     #`(begin
+         (define-syntax id (make-identifier-syntax-definition-sequence-transformer-runtime in-space-expr
+                                                                                           #'compiletime-id))
+         (begin-for-syntax
+           (define-syntax compiletime-id
+             (make-identifier-syntax-definition-sequence-transformer-compiletime #'make-transformer-id))))]))
+
+(define-for-syntax (make-identifier-syntax-definition-sequence-transformer-runtime in-space
+                                                                                   compiletime-id)
   (definition-transformer
     (lambda (stx)
      (syntax-parse stx
@@ -416,15 +386,15 @@
                             (~optional (group #:op_stx (block (group self-id:identifier)))
                                        #:defaults ([self-id #'self]))
                             body ...)))
-        (list (parse-transformer-definition #'q.g #'self-id #'rhs
-                                            in-space make-transformer-id
-                                            #:tail-ids #'(tail-id)
-                                            #:wrap-for-tail
-                                            (lambda (body)
-                                              (define-values (pattern idrs can-be-empty?)
-                                                (convert-pattern #`(multi . q.gs)))
-                                              (with-syntax ([((p-id id-ref) ...) idrs])
-                                                #`(syntax-parse tail-id
-                                                    [#,pattern
-                                                     (let ([p-id id-ref] ...)
-                                                       #,body)])))))]))))
+        (define p (parse-transformer-definition #'q.g #'rhs))
+        (list #`(define-syntax #,(in-space (pre-parsed-name p))
+                  (#,compiletime-id #,p q.gs)))]))))
+
+(begin-for-syntax
+  (define-for-syntax (make-identifier-syntax-definition-sequence-transformer-compiletime make-transformer-id)
+    (lambda (stx)
+      (syntax-parse stx
+        [(_ pre-parsed gs)
+         (parse-transformer-definition-sequence-rhs #'pre-parsed #'self-id
+                                                    make-transformer-id
+                                                    #'gs)]))))

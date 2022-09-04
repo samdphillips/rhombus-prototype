@@ -5,12 +5,14 @@
          "binding.rkt"
          "parse.rkt")
 
-(provide literal-infoer)
+(provide literal-infoer
+         ;; useful for other binding patterns:
+         literal-bind-nothing)
 
 (define-syntax (literal-infoer stx)
   (syntax-parse stx
     [(_ static-infos datum)
-     (binding-info (shrubbery-syntax->string #'datum)
+     (binding-info (format "matching(~a)" (shrubbery-syntax->string #'datum))
                    #'literal
                    #'static-infos
                    #'()
@@ -21,7 +23,7 @@
 (define-syntax (literal-matcher stx)
   (syntax-parse stx
     [(_ arg-id datum IF success fail)
-     #'(IF (equal? arg-id (quote datum))
+     #'(IF (equal-always? arg-id (quote datum))
            success
            fail)]))
 
@@ -29,4 +31,3 @@
   (syntax-parse stx
     [(_ arg-id datum)
      #'(begin)]))
-

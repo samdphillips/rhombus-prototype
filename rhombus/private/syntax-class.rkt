@@ -16,33 +16,27 @@
          Block
          Multi)
 
-(module+ for-macro
-  (provide syntax))
-
 (module+ for-quasiquote
-  (provide (for-syntax in-syntax-class-space
-                       rhombus-syntax-class?
-                       rhombus-syntax-class-kind
-                       rhombus-syntax-class-class)))
+  (begin-for-syntax
+    (provide in-syntax-class-space
+             (struct-out rhombus-syntax-class)
+             (struct-out syntax-class-attribute))))
+                       
+(module+ for-syntax-class-syntax
+  (provide (for-syntax rhombus-syntax-class in-syntax-class-space)))
 
 (begin-for-syntax
   (define in-syntax-class-space (make-interned-syntax-introducer/add 'rhombus/syntax-class))
 
-  (struct rhombus-syntax-class (kind class)))
+  (struct rhombus-syntax-class (kind class attributes splicing?))
 
-(define-syntax Term (rhombus-syntax-class 'term #f))
-(define-syntax Id (rhombus-syntax-class 'term #'identifier))
-(define-syntax Op (rhombus-syntax-class 'term #':operator))
-(define-syntax Id_Op (rhombus-syntax-class 'term #':operator-or-identifier))
-(define-syntax Keyw (rhombus-syntax-class 'term #'keyword))
-(define-syntax Group (rhombus-syntax-class 'group #f))
-(define-syntax Multi (rhombus-syntax-class 'multi #f))
-(define-syntax Block (rhombus-syntax-class 'block #f))
+  (struct syntax-class-attribute (id depth)))
 
-(define-simple-name-root syntax
-  class)
-
-(define-syntax class
-  (definition-transformer
-    (lambda (stx)
-      (raise-syntax-error 'syntax.class "not supported, yet" stx))))
+(define-syntax Term (rhombus-syntax-class 'term #f null #f))
+(define-syntax Id (rhombus-syntax-class 'term #'identifier null #f))
+(define-syntax Op (rhombus-syntax-class 'term #':operator null #f))
+(define-syntax Id_Op (rhombus-syntax-class 'term #':operator-or-identifier null #f))
+(define-syntax Keyw (rhombus-syntax-class 'term #'keyword null #f))
+(define-syntax Group (rhombus-syntax-class 'group #f null #f))
+(define-syntax Multi (rhombus-syntax-class 'multi #f null #f))
+(define-syntax Block (rhombus-syntax-class 'block #f null #f))

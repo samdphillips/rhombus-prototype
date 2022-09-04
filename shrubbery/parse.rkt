@@ -154,7 +154,7 @@
   (unless (null? rest-l)
     (error "had leftover items" rest-l))
   (cond
-    [(and interactive? (null? gs)) eof]
+    [(and interactive? (null? gs) (null? l)) eof]
     [else
      (define top (lists->syntax (cons top-tag (bars-insert-alts gs))))
      (add-raw-tail top tail-raw)]))
@@ -675,7 +675,7 @@
            (define-values (suffix-raw suffix-l suffix-line suffix-delta)
              (get-suffix-comments rest-l close-line close-delta))
            (define-values (at-adjust new-at-mode at-l at-line at-delta)
-             (continue-at (state-at-mode s) (equal? closer "]") suffix-l suffix-line suffix-delta (state-count? s)))
+             (continue-at (state-at-mode s) (equal? closer ")") suffix-l suffix-line suffix-delta (state-count? s)))
            (define-values (g rest-rest-l end-line end-delta tail-commenting tail-raw)
              (parse-group at-l (struct-copy state s
                                             [line at-line]
@@ -725,6 +725,8 @@
           [(at)
            (check-block-mode)
            (cond
+             [(state-at-mode s)
+              (done)]
              [(null? (cdr l))
               (fail t "missing term after `@`")
               (parse-group null s)]
@@ -734,12 +736,10 @@
               (case (token-name next-t)
                 [(opener)
                  (case (token-e next-t)
-                   [("(" "«" "'")
+                   [("(" "[" "«" "'")
                     (parse-group (cdr l) (struct-copy state s
                                                       [raw (cons t (state-raw s))]
                                                       [at-mode 'initial]))]
-                   [("[")
-                    (keep (state-delta s) #:at-mode 'no-initial #:suffix? #f)]
                    [else (error "unexpected" (token-name next-t)  (token-e next-t))])]
                 [(identifier number literal operator opener)
                  (parse-group (cdr l) (struct-copy state s
@@ -901,10 +901,10 @@
       (and (syntax? e)
            (eq? sym (syntax-e e)))))
 
-;; Look for `{` (as 'at-opener) next or a `[` that might be followed
+;; Look for `{` (as 'at-opener) next or a `(` that might be followed
 ;; by a `{`, and prepare to convert by rearranging info a splice
 ;; followed by parentheses
-(define (continue-at at-mode after-bracket? l line delta count?)
+(define (continue-at at-mode after-paren? l line delta count?)
   (define (at-call rator parens g)
     (if (eq? at-mode 'no-initial)
         (cons (move-pre-raw rator
@@ -914,24 +914,24 @@
   (cond
     [(not at-mode)
      (values (lambda (g) g) #f l line delta)]
-    [(and (not after-bracket?)
+    [(and (or (not after-paren?)
+              (eq? at-mode 'initial))
           (pair? l)
           (eq? 'opener (token-name (car l)))
-          (equal? "[" (token-e (car l))))
+          (equal? "(" (token-e (car l))))
      (values (lambda (g)
                (define a (cadr g))
                (define tag (car a))
                (cond
-                 [(tag? 'brackets tag)
+                 [(tag? 'parens tag)
                   (at-call (car g)
-                           (cons (datum->syntax tag 'parens tag tag)
-                                 (cdr a))
+                           a
                            (cddr g))]
                  [(eq? at-mode 'no-initial)
                   (add-raw-to-prefix* #f (syntax-to-raw (car g))
                                       (cdr g))]
                  [else g]))
-             at-mode l line delta)]
+             'post-initial l line delta)]
     [(and (pair? l)
           (eq? 'at-opener (token-name (car l))))
      ;; process a `{`...`}` body, handling escapes and then trimming whitespace
@@ -949,27 +949,29 @@
              ;; more `{}` arguments
              (loop (cddr l) (cons c accum-args))]
             [else
-             (values (lambda (g) (cond
-                                   [(not after-bracket?)
-                                    (at-call (car g)
-                                             (cons parens-tag (reverse (cons c accum-args)))
-                                             (cdr g))]
-                                   [else
-                                    (define bracket (caar g))
-                                    (define new-g (cons (cons parens-tag
-                                                              (append
-                                                               (cdar g)
-                                                               (let ([args (reverse (cons c accum-args))])
-                                                                 (cons
-                                                                  (move-post-raw-to-prefix bracket (car args))
-                                                                  (cdr args)))))
-                                                        (cdr g)))
-                                    (move-pre-raw bracket
-                                                  (add-raw-to-prefix* #f (syntax-to-raw bracket)
-                                                                      new-g))]))
+             (values (lambda (g)
+                       (cond
+                         [(or (not after-paren?)
+                              (eq? at-mode 'initial))
+                          (at-call (car g)
+                                   (cons parens-tag (reverse (cons c accum-args)))
+                                   (cdr g))]
+                         [else
+                          (define bracket (caar g))
+                          (define new-g (cons (cons parens-tag
+                                                    (append
+                                                     (cdar g)
+                                                     (let ([args (reverse (cons c accum-args))])
+                                                       (cons
+                                                        (move-post-raw-to-prefix bracket (car args))
+                                                        (cdr args)))))
+                                              (cdr g)))
+                          (move-pre-raw bracket
+                                        (add-raw-to-prefix* #f (syntax-to-raw bracket)
+                                                            new-g))]))
                      'initial (if (null? l) null (cdr l)) line delta)]))))]
     [else
-     (values (lambda (g) g) #f l line delta)]))
+     (values (lambda (g) g) (and at-mode 'after) l line delta)]))
 
 (define (parse-text-sequence l line delta
                              done-k
@@ -1010,7 +1012,7 @@
       [(at at-comment)
        (define t (car l))
        (define comment? (eq? (token-name t) 'at-comment))
-       ;; `parse-group` work will be delimited by 'at-content or 'at-closer
+       ;; `parse-group` work will be delimited by 'at-content, 'at-closer, or another 'at
        (define-values (g rest-l group-end-line group-delta group-tail-commenting group-tail-raw)
          (parse-group (if comment?
                           (cons (token-rename t 'at) (cdr l))
@@ -1523,14 +1525,12 @@
   (define l (lex-all in fail
                      #:source source
                      #:interactive? interactive?
-                     #:text-mode? text-mode?))
+                     #:text-mode? text-mode?
+                     #:consume-eof? #t))
   (check-line-counting l)
   (define v (if text-mode?
                 (parse-text-sequence l 0 zero-delta (lambda (c l line delta) (datum->syntax #f c)))
                 (parse-top-groups l #:interactive? interactive?)))
-  (when (and interactive? (eof-object? v))
-    ;; consume the EOF
-    (read-char in))
   v)
   
 (module+ main

@@ -8,12 +8,11 @@
          "syntax.rkt"
          "expression.rkt"
          "parse.rkt"
-         "call-result-key.rkt"
          "wrap-expression.rkt"
          (for-syntax "name-root.rkt"))
 
 (provide expr
-         (for-syntax expr_ct))
+         expr_only)
 
 (module+ for-define
   (provide (for-syntax make-expression-infix-operator
@@ -23,23 +22,38 @@
   macro
   rule)
 
-(begin-for-syntax
-  (define-simple-name-root expr_ct
-    call_result_key))
+(define-name-root expr_only
+  #:fields
+  ([macro macro-only]
+   [rule rule-only]))
 
-(define-syntax macro
-  (make-operator-definition-transformer 'macro
-                                        (lambda (x) x)
-                                        #'make-expression-prefix-operator
-                                        #'make-expression-infix-operator
-                                        #'expression-prefix+infix-operator))
+(define-operator-definition-transformer macro
+  'macro
+  (lambda (x) x)
+  #'make-expression-prefix-operator
+  #'make-expression-infix-operator
+  #'expression-prefix+infix-operator)
 
-(define-syntax rule
-  (make-operator-definition-transformer 'rule
-                                        (lambda (x) x)
-                                        #'make-expression-prefix-operator
-                                        #'make-expression-infix-operator
-                                        #'expression-prefix+infix-operator))
+(define-operator-definition-transformer rule
+  'rule
+  (lambda (x) x)
+  #'make-expression-prefix-operator
+  #'make-expression-infix-operator
+  #'expression-prefix+infix-operator)
+
+(define-operator-definition-transformer macro-only
+  'macro
+  in-expression-space
+  #'make-expression-prefix-operator
+  #'make-expression-infix-operator
+  #'expression-prefix+infix-operator)
+
+(define-operator-definition-transformer rule-only
+  'rule
+  in-expression-space
+  #'make-expression-prefix-operator
+  #'make-expression-infix-operator
+  #'expression-prefix+infix-operator)
 
 (define-for-syntax (make-expression-infix-operator name prec protocol proc assc)
   (expression-infix-operator
@@ -55,7 +69,7 @@
          (define-values (form new-tail) (syntax-parse tail
                                           [(head . tail) (proc #`(parsed #,form1) (pack-tail #'tail #:after #'head) #'head)]))
          (check-transformer-result (wrap-expression (check-expression-result form proc))
-                                   (unpack-tail new-tail proc)
+                                   (unpack-tail new-tail proc #f)
                                    proc)))
    assc))
 
@@ -73,7 +87,5 @@
          (define-values (form new-tail) (syntax-parse tail
                                           [(head . tail) (proc (pack-tail #'tail #:after #'head) #'head)]))
          (check-transformer-result (wrap-expression (check-expression-result form proc))
-                                   (unpack-tail new-tail proc)
+                                   (unpack-tail new-tail proc #f)
                                    proc)))))
-
-(define-for-syntax call_result_key #'#%call-result)

@@ -4,14 +4,14 @@
          "define-operator.rkt"
          (prefix-in rhombus: "print.rkt"))
 
-(provide &)
+(provide +&)
 
-(define-infix & append-as-strings
+(define-infix +& append-as-strings
   #:stronger-than (===))
 
 (define (append-as-strings a b)
-  (string-append (to-string a)
-                 (to-string b)))
+  (string-append-immutable (to-string a)
+                           (to-string b)))
 
 (define (to-string a)
   (cond

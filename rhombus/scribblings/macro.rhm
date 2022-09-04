@@ -7,13 +7,24 @@ import:
 
 export:
   make_macro_eval
+  make_for_meta_eval
   close_eval
 
 fun make_macro_eval():
   val macro_eval: manual.make_rhombus_eval()
-  @examples[
+  @examples(
     ~eval: macro_eval,
     ~hidden: #true,
-    import: rhombus/macro open
-  ]
+    import: rhombus/meta open
+  )
   macro_eval
+
+fun make_for_meta_eval():
+  val meta_eval: manual.make_rhombus_eval()
+  @examples(
+    ~eval: meta_eval,
+    ~hidden: #true,
+    import: 
+      rhombus/meta open
+  )
+  meta_eval

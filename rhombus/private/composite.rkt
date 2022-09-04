@@ -4,6 +4,7 @@
                      "annotation-string.rkt")
          "parse.rkt"
          "binding.rkt"
+         "repetition.rkt"
          "static-info.rkt"
          "ref-result-key.rkt"
          (submod "annotation.rkt" for-class))
@@ -15,7 +16,7 @@
 (provide (for-syntax make-composite-binding-transformer
                      make-rest-match))
 
-(define-for-syntax (make-composite-binding-transformer constructor-str ; string name for constructor, used for contract
+(define-for-syntax (make-composite-binding-transformer constructor-str ; string name for constructor or map list, used for contract
                                                        predicate     ; predicate for the composite value
                                                        accessors     ; one accessor per component
                                                        static-infoss ; one set of static info per component
@@ -77,21 +78,19 @@
      #:with (a-impl::binding-impl ...) #'((infoer-id (static-info ... . arg-static-infos) data) ...)
      #:with (a-info::binding-info ...) #'(a-impl.info ...)
 
-     (define-values (new-rest-data rest-static-infos rest-bind-infos rest-name-id)
+     (define-values (new-rest-data rest-static-infos rest-name-id rest-annotation-str)
        (syntax-parse #'rest-data
-         [#f (values #'#f #'() #'() #'rest)]
+         [#f (values #'#f #'() #'rest #f)]
          [(rest-accessor rest-infoer-id rest-a-data)
           #:with rest-impl::binding-impl #'(rest-infoer-id () rest-a-data)
           #:with rest-info::binding-info #'rest-impl.info
           #:with (rest-tmp-id) (generate-temporaries #'(rest-info.name-id))
-          (values #`(rest-tmp-id rest-accessor rest-info)
+          (values #`(rest-tmp-id rest-accessor rest-info
+                                 #,(or (static-info-lookup #'static-infos #'#%ref-result)
+                                       '()))
                   #'rest-info.static-infos
-                  (syntax-parse #'rest-info.bind-infos
-                    [((bind-id bind-static-info ...) ...)
-                     #:with ref-static-infos (or (static-info-lookup #'static-infos #'#%ref-result)
-                                                 '())
-                     #'((bind-id (#%ref-result (bind-static-info ... . ref-static-infos))) ...)])
-                  #'rest-info.name-id)]))
+                  #'rest-info.name-id
+                  #'rest-info.annotation-str)]))
 
      (define all-composite-static-infos
        (let* ([composite-static-infos #'(composite-static-info ... . static-infos)]
@@ -114,10 +113,10 @@
                                                  . #,composite-static-infos))]
                                         [else composite-static-infos])])
          composite-static-infos))
-     (binding-info (build-annotation-str #'constructor-str (syntax->list #'(a-info.annotation-str ...)))
+     (binding-info (build-annotation-str #'constructor-str (syntax->list #'(a-info.annotation-str ...)) rest-annotation-str)
                    #'composite
                    all-composite-static-infos
-                   #`((a-info.bind-id a-info.bind-static-info ...) ... ... #,@rest-bind-infos)
+                   #`((a-info.bind-id a-info.bind-static-info ...) ... ...)
                    #'composite-matcher
                    #'composite-binder
                    #`(predicate steppers accessors #,(generate-temporaries #'(a-info.name-id ...))
@@ -143,7 +142,7 @@
                  [(null? name-ids)
                   (syntax-parse #'rest-data
                     [#f #`(IF #t success-expr fail-expr)]
-                    [(rest-tmp-id rest-accessor rest-info)
+                    [(rest-tmp-id rest-accessor rest-info down-static-infos)
                      #`(begin
                          (define rest-tmp-id #,(make-rest-match c-arg-id #'rest-accessor #'rest-info #'(lambda (arg) #f)))
                          (IF rest-tmp-id
@@ -178,9 +177,15 @@
          ...
          #,@(syntax-parse #'rest-data
               [#f #'()]
-              [(rest-tmp-id rest-accessor rest-info)
+              [(rest-tmp-id rest-accessor rest-info down-static-infos)
                #:with rest::binding-info #'rest-info
-               #'((define-values (rest.bind-id ...) (rest-tmp-id)))]))]))
+               #:with (rest-seq-tmp-id ...) (generate-temporaries #'(rest.bind-id ...))
+               #'((define-values (rest-seq-tmp-id ...) (rest-tmp-id))
+                  (define-syntax rest.bind-id
+                    (make-repetition (quote-syntax rest.bind-id)
+                                     (quote-syntax rest-seq-tmp-id)
+                                     (quote-syntax (rest.bind-static-info ... . down-static-infos))))
+                  ...)]))]))
 
 ;; ------------------------------------------------------------
 
@@ -198,7 +203,7 @@
                             if/blocked
                             (lambda ()
                               (rest.binder-id arg-id rest.data)
-                              (values rest.bind-id ...))
+                              (values (rhombus-expression (group rest.bind-id)) ...))
                             (#,fail arg-id))))]))
 
 (define-syntax-rule (if/blocked tst thn els)
@@ -240,14 +245,25 @@
                         [rest-vals (in-list rest-valss)])
                (cons val rest-vals))]))))]))
 
-(define-for-syntax (build-annotation-str constructor-str arg-annotation-strs)
+(define-for-syntax (build-annotation-str constructor-str arg-annotation-strs rest-annotation-str)
+  (define c-str (syntax-e constructor-str))
   (annotation-string-from-pattern
    (string-append
-    (syntax-e constructor-str) "("
+    (if (pair? c-str) (syntax-e (car c-str)) c-str)
+    (if (pair? c-str) "{" "(")
     (apply string-append
            (for/list ([a-str (in-list arg-annotation-strs)]
+                      [key-str (in-list (if (pair? c-str)
+                                            (cdr c-str)
+                                            arg-annotation-strs))]
                       [i (in-naturals)])
              (string-append
               (if (zero? i) "" ", ")
+              (if (pair? c-str)
+                  (string-append (syntax-e key-str) ": ")
+                  "")
               (annotation-string-to-pattern (syntax-e a-str)))))
-    ")")))
+    (if rest-annotation-str
+        (string-append ", " (syntax-e rest-annotation-str) ", ...")
+        "")
+    (if (pair? c-str) "}" ")"))))

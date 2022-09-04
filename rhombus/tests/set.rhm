@@ -1,0 +1,52 @@
+#lang rhombus
+import: "check.rhm" open
+
+check:
+  Set.length({10, 20})
+  2
+
+// FIXME
+#//
+check:
+  ~exn
+  Set.length([1, 2, 3])
+  values("contract violation", "expected: Set")
+
+begin:
+  use_static
+  check:
+    {1, 2}.length()
+    2
+  check:
+    {"a", "b"}["a"]
+    #true
+  check:
+    Set("a", "b").length()
+    2
+  check:
+    MutableSet("a", "b").length()
+    2
+  check:
+    val set: {1, 2}
+    set.length()
+    2
+  check:
+    val set :: Set: dynamic({"a", "b"})
+    set.length()
+    2
+  check:
+    val set -: Set: dynamic({"a", "b"})
+    set.length()
+    2
+  check:
+    val set :: Set.of(String): dynamic({"a", "b"})
+    set.length()
+    2
+
+begin:
+  check:
+    dynamic({"a", "b"}).length()
+    2
+  check:
+    dynamic({"a", "b"})["a"]
+    #true

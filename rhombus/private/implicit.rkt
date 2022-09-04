@@ -5,22 +5,27 @@
          "expression.rkt"
          "binding.rkt"
          "expression+binding.rkt"
+         "repetition.rkt"
          "parse.rkt"
          (submod "function.rkt" for-call)
          (submod "map-ref.rkt" for-ref)
          (submod "list.rkt" for-binding)
          "setmap.rkt"
          (submod "map.rkt" for-binding)
-         "literal.rkt")
+         "literal.rkt"
+         "parens.rkt")
 
 (provide #%body
          #%literal
-         #%tuple
-         ;; #%quote is provided by "quasiquote.rkt"
+         #%parens
+         ;; `#%quotes` provided by "quasiquote.rkt"
          #%call
-         #%array
+         #%brackets
          #%ref
-         #%set)
+         #%braces)
+
+(module+ for-dynamic-static
+  (provide (for-syntax make-#%ref)))
 
 (define-syntax #%body
   (expression-prefix-operator
@@ -57,11 +62,12 @@
                       "misplaced keyword"
                       datum))
 
-(define-syntax #%tuple
-  (make-expression+binding-prefix-operator
-   #'#%tuple
+(define-syntax #%parens
+  (make-expression+binding+repetition-prefix-operator
+   #'#%parens
    '((default . stronger))
    'macro
+   ;; expression
    (lambda (stxes)
      (syntax-parse stxes
        [(_ (~and head ((~datum parens) . args)) . tail)
@@ -76,6 +82,7 @@
              ;; delay parsing by using `rhombus-expression`, instead
              (syntax-parse (car args)
                [e::expression (values #'e.parsed #'tail)])]))]))
+   ;; binding
    (lambda (stxes)
      (syntax-parse stxes
        [(_ (~and head ((~datum parens) . args)) . tail)
@@ -87,7 +94,20 @@
              (raise-syntax-error #f "too many patterns" #'head)]
             [else
              (syntax-parse (car args)
-               [b::binding (values #'b.parsed #'tail)])]))]))))
+               [b::binding (values #'b.parsed #'tail)])]))]))
+   ;; repetition
+   (lambda (stxes)
+     (syntax-parse stxes
+       [(_ (~and head ((~datum parens) . args)) . tail)
+        (let ([args (syntax->list #'args)])
+          (cond
+            [(null? args)
+             (raise-syntax-error #f "empty repetition" #'head)]
+            [(pair? (cdr args))
+             (raise-syntax-error #f "too many repetions" #'head)]
+            [else
+             (syntax-parse (car args)
+               [r::repetition (values #'r.parsed #'tail)])]))]))))
 
 (define-syntax #%call
   (expression-infix-operator
@@ -98,30 +118,43 @@
      (parse-function-call rator stxes))
    'left))
 
-(define-syntax #%array
-  (make-expression+binding-prefix-operator
-   #'#%array
+(define-syntax #%brackets
+  (make-expression+binding+repetition-prefix-operator
+   #'#%brackets
    '((default . stronger))
    'macro
    ;; expression
    (lambda (stxes)
+     (check-brackets stxes)
      (parse-list-expression stxes))
    ;; binding
    (lambda (stxes)
-     (parse-list-binding stxes))))
+     (check-brackets stxes)
+     (parse-list-binding stxes))
+   ;; repetition
+   (lambda (stxes)
+     (check-brackets stxes)
+     (parse-list-repetition stxes))))
 
-(define-syntax #%ref
+(define-for-syntax (check-brackets stxes)
+  (syntax-parse stxes
+    [(_ (_::brackets . _) . _) (void)]))
+
+(define-for-syntax (make-#%ref more-static?)
   (expression-infix-operator
    #'#%ref
    '((default . stronger))
    'macro
    (lambda (array stxes)
-     (parse-map-ref-or-set array stxes))
+     (parse-map-ref-or-set array stxes more-static?))
    'left))
 
-(define-syntax #%set
+(define-syntax #%ref
+  (make-#%ref #f))
+
+(define-syntax #%braces
   (make-expression+binding-prefix-operator
-   #'#%set
+   #'#%braces
    '((default . stronger))
    'macro
    ;; expression
@@ -132,4 +165,4 @@
                 #'tail)]))
    ;; binding
    (lambda (stxes)
-     (parse-map-binding stxes "braces"))))
+     (parse-map-binding 'braces stxes "braces"))))

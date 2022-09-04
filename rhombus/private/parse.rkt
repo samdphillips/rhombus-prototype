@@ -10,12 +10,14 @@
          "name-root-ref.rkt"
          "forwarding-sequence.rkt"
          "declaration.rkt"
+         "nestable-declaration.rkt"
          "definition.rkt"
          "expression.rkt"
          "binding.rkt"
          "srcloc.rkt")
 
 (provide rhombus-top
+         rhombus-nested
          rhombus-definition
          rhombus-body
          rhombus-expression
@@ -27,6 +29,7 @@
          rhombus-top-step
 
          (for-syntax :declaration
+                     :nestable-declaration
                      :definition
                      :expression
                      :binding
@@ -48,18 +51,33 @@
   (define-transform
     #:syntax-class :declaration
     #:desc "declaration"
+    #:in-space in-expression-space
     #:name-path-op name-path-op
     #:name-root-ref name-root-ref
+    #:name-root-ref-root name-root-ref-root
     #:transformer-ref declaration-transformer-ref
     #:check-result check-declaration-result)
+
+  ;; Form at the top of a module or in a `nested` block:
+  (define-transform
+    #:syntax-class :nestable-declaration
+    #:desc "nestable declaration"
+    #:in-space in-expression-space
+    #:name-path-op name-path-op
+    #:name-root-ref name-root-ref
+    #:name-root-ref-root name-root-ref-root
+    #:transformer-ref nestable-declaration-transformer-ref
+    #:check-result check-nestable-declaration-result)
 
   ;; Form in a definition context:
   (define-transform
     #:syntax-class :definition
     #:predicate definition?
     #:desc "definition"
+    #:in-space in-expression-space
     #:name-path-op name-path-op
     #:name-root-ref name-root-ref
+    #:name-root-ref-root name-root-ref-root
     #:transformer-ref definition-transformer-ref
     #:check-result check-definition-result)
 
@@ -69,8 +87,10 @@
     #:apply-transformer apply-definition-sequence-transformer
     #:predicate definition-sequence?
     #:desc "definition sequence"
+    #:in-space in-expression-space
     #:name-path-op name-path-op
     #:name-root-ref name-root-ref
+    #:name-root-ref-root name-root-ref-root
     #:transformer-ref definition-sequence-transformer-ref
     #:check-result check-definition-result)
 
@@ -84,11 +104,18 @@
     #:in-space in-expression-space
     #:name-path-op name-path-op
     #:name-root-ref name-root-ref
+    #:name-root-ref-root name-root-ref-root
     #:prefix-operator-ref expression-prefix-operator-ref
     #:infix-operator-ref expression-infix-operator-ref
     #:check-result check-expression-result
     #:make-identifier-form make-identifier-expression
     #:relative-precedence expression-relative-precedence)
+
+  (define name-root-binding-ref
+    (make-name-root-ref in-binding-space
+                        (lambda (v)
+                          (or (binding-prefix-operator-ref v)
+                              (binding-infix-operator-ref v)))))
 
   ;; Form in a binding context:
   (define-enforest
@@ -99,7 +126,8 @@
     #:operator-desc "binding operator"
     #:in-space in-binding-space
     #:name-path-op name-path-op
-    #:name-root-ref name-root-ref
+    #:name-root-ref name-root-binding-ref
+    #:name-root-ref-root name-root-ref-root
     #:prefix-operator-ref binding-prefix-operator-ref
     #:infix-operator-ref binding-infix-operator-ref
     #:check-result check-binding-result
@@ -109,29 +137,40 @@
 ;; For a module top level, interleaves expansion and enforestation:
 (define-syntax (rhombus-top stx)
   (syntax-parse stx
-    [(_ . rest) #'(rhombus-top-step rhombus-top . rest)]))
+    [(_ . rest) #'(rhombus-top-step rhombus-top #t . rest)]))
+
+;; For a nested context
+(define-syntax (rhombus-nested stx)
+  (syntax-parse stx
+    [(_ . rest) #'(rhombus-top-step rhombus-nested #f . rest)]))
 
 ;; Trampoline variant where `top` for return is provided first
 (define-syntax (rhombus-top-step stx)
   (with-syntax-error-respan
     (syntax-local-introduce
      (syntax-parse (syntax-local-introduce stx)
-       [(_ top) #`(begin)]
-       [(_ top ((~datum group) ((~datum parsed) decl)) . forms)
+       [(_ top decl-ok?) #`(begin)]
+       [(_ top decl-ok? ((~datum group) ((~datum parsed) decl)) . forms)
         #`(begin decl (top . forms))]
        ;; note that we may perform hierarchical name resolution
        ;; up to four times, since resolution in `:declaration`,
        ;; `:definition`, etc., doesn't carry over
-       [(_ top e::definition-sequence . tail)
+       [(_ top decl-ok? e::definition-sequence . tail)
         (define-values (parsed new-tail)
           (apply-definition-sequence-transformer #'e.id #'e.tail #'tail))
         #`(begin (begin . #,parsed) (top . #,new-tail))]
-       [(_ top form . forms)
-        (define parsed
+       [(_ top decl-ok? form . forms)
+        (define (nestable-parsed)
           (syntax-parse #'form
-            [e::declaration #'(begin . e.parsed)]
+            [e::nestable-declaration #'(begin . e.parsed)]
             [e::definition #'(begin . e.parsed)]
-            [e::expression #'(#%expression e.parsed)]))
+            [e::expression (syntax/loc #'e.parsed (#%expression e.parsed))]))
+        (define parsed
+          (if (syntax-e #'decl-ok?)
+              (syntax-parse #'form
+                [e::declaration #'(begin . e.parsed)]
+                [_ (nestable-parsed)])
+              (nestable-parsed)))
         (syntax-parse #'forms
           [() parsed]
           [_ #`(begin #,parsed (top . forms))])]))))
@@ -154,7 +193,7 @@
     [(_ . tail)
      #`(let ()
          (rhombus-forwarding-sequence
-          #:need-end-expr #,stx
+          #:block #:need-end-expr #,stx
           (rhombus-body-sequence . tail)))]))
 
 ;; Similar to `rhombus-body`, but goes through `#%body`:
@@ -221,7 +260,7 @@
     [((~datum block) g ...) #`(rhombus-body g ...)]))
 
 ;; Forces enforestation through `rhombus-expression`; note that
-;; `#%tuple` eagerly enforests its content, so this effectively
+;; `#%parens` eagerly enforests its content, so this effectively
 ;; goes eagerly through parentheses
 (define-for-syntax (rhombus-local-expand stx)
   (syntax-parse stx

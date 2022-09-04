@@ -10,14 +10,14 @@
          "syntax.rkt"
          "parse.rkt")
 
-(provide imp)
+(provide impo)
 
-(define-simple-name-root imp
+(define-simple-name-root impo
   modifier)
 
-(define-syntax modifier
-  (make-identifier-syntax-definition-transformer (lambda (x) x)
-                                                 #'make-import-modifier))
+(define-identifier-syntax-definition-transformer modifier
+  (lambda (x) x)
+  #'make-import-modifier)
 
 (define-for-syntax (make-import-modifier proc)
   (import-modifier

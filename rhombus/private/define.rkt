@@ -3,7 +3,12 @@
                      syntax/parse
                      enforest/transformer
                      "consistent.rkt"
-                     "infer-name.rkt")
+                     "infer-name.rkt"
+                     (for-syntax racket/base
+                                 syntax/parse)
+                     "syntax-rhs.rkt"
+                     "srcloc.rkt"
+                     "tag.rkt")
          "definition.rkt"
          "binding.rkt"
          "expression.rkt"
@@ -13,6 +18,7 @@
          (for-syntax "parse.rkt")
          (submod "value.rkt" for-define)
          "syntax.rkt"
+         "dotted-sequence-parse.rkt"
          (submod "expression-syntax.rkt" for-define))
 
 (provide (rename-out [rhombus-define def]))
@@ -32,11 +38,12 @@
     (lambda (stx)
      (syntax-parse stx
        #:datum-literals (parens group block alts op)
-       [(form-id ((~and alts-tag alts) (block (group id:identifier (parens arg::non-...-binding ... rest::maybe-arg-rest)
+       [(form-id ((~and alts-tag alts) (block (group id-seq::dotted-identifier-sequence (parens arg::non-...-binding ... rest::maybe-arg-rest)
                                                      ret::ret-annotation
                                                      (~and rhs (block body ...))))
                                        ...+))
-        (define ids (syntax->list #'(id ...)))
+        #:with (id::dotted-identifier ...) #'(id-seq ...)
+        (define ids (syntax->list #'(id.name ...)))
         (define the-id (car ids))
         (check-consistent stx ids "name")
         (list
@@ -48,14 +55,15 @@
                                      #'(ret.predicate ...)
                                      #'(rhs ...)
                                      #'form-id #'alts-tag))))]
-       [(form-id id::non-binding-identifier ((~and parens-tag parens) arg::kw-opt-binding ... rest::maybe-arg-rest)
+       [(form-id id-seq::dotted-identifier-sequence ((~and parens-tag parens) arg::kw-opt-binding ... rest::maybe-arg-rest)
                  ret::ret-annotation
                  (~and rhs (block body ...)))
+        #:with id::non-binding-dotted-identifier #'id-seq
         #:with (arg-id ...) (generate-temporaries #'(arg ...))
         (list
          (wrap-definition
-          #`(define id
-              #,(build-function #'id
+          #`(define id.name
+              #,(build-function #'id.name
                                 #'(arg.kw ...) #'(arg ...) #'(arg.parsed ...) #'(arg.default ...)
                                 #'rest.arg #'rest.parsed
                                 #'ret.predicate
@@ -75,9 +83,7 @@
                                       (syntax->list #'(q.g ...))
                                       (syntax->list #'(rhs ...))
                                       in-expression-space
-                                      #'make-expression-prefix-operator
-                                      #'make-expression-infix-operator
-                                      #'expression-prefix+infix-operator)))]
+                                      #'rules-rhs)))]
        [(form-id q::operator-syntax-quote
                  (~and rhs (block body ...)))
         (list
@@ -86,11 +92,25 @@
                                      #'q.g
                                      #'rhs
                                      in-expression-space
-                                     #'make-expression-prefix-operator
-                                     #'make-expression-infix-operator)))]
+                                     #'rule-rhs)))]
        [(form-id any ...+ (~and rhs (block body ...)))
-        (build-value-definitions #'form-id #'(group any ...) #'rhs
+        (build-value-definitions #'form-id (no-srcloc #`(#,group-tag any ...)) #'rhs
                                  wrap-definition)]))))
 
 (define-syntax rhombus-define
   (make-define (lambda (defn) defn)))
+
+(begin-for-syntax
+  (define-syntax (rules-rhs stx)
+    (syntax-parse stx
+      [(_ orig-stx pre-parsed ...)
+       (parse-operator-definitions-rhs #'orig-stx (syntax->list #'(pre-parsed ...))
+                                       #'make-expression-prefix-operator
+                                       #'make-expression-infix-operator
+                                       #'expression-prefix+infix-operator)]))
+  (define-syntax (rule-rhs stx)
+    (syntax-parse stx
+      [(_ pre-parsed)
+       (parse-operator-definition-rhs #'pre-parsed
+                                      #'make-expression-prefix-operator
+                                      #'make-expression-infix-operator)])))

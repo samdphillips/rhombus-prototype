@@ -3,7 +3,8 @@
          (for-syntax racket/base)
          (prefix-in : parser-tools/lex-sre)
          "private/property.rkt"
-         "private/peek-port.rkt")
+         "private/peek-port.rkt"
+         "private/emoji.rkt")
 
 (provide lex/status
          lex-all
@@ -111,13 +112,13 @@
   
   [script (:: "#!" (:or #\space #\/) (:* (:~ #\newline) (:: #\\ #\newline)))]
   
-  [identifier (:: (:or alphabetic "_")
-                  (:* (:or alphabetic numeric "_")))]
-  [opchar (:or (:- symbolic (:or "~"))
+  [identifier (:: (:or alphabetic "_" emoji)
+                  (:* (:or alphabetic numeric "_" emoji)))]
+  [opchar (:or (:- symbolic one-char-emoji)
                (:- punctuation (:or "," ";" "#" "\\" "_" "@" "\"" "'"
                                     "(" ")" "[" "]" "{" "}" "«" "»")))]
-  [operator (:- (:or opchar
-                     (:: (:* opchar) (:- opchar "+" "-" "." "/"))
+  [operator (:- (:or (:- opchar "~")
+                     (:: (:+ opchar) (:- opchar "+" "-" "." "/"))
                      (:+ ".")
                      (:+ "+")
                      (:+ "-"))
@@ -163,7 +164,8 @@
   [bad-chars (:* (:- any-char
                      alphabetic numeric
                      symbolic punctuation
-                     whitespace))]
+                     whitespace
+                     one-char-emoji))]
 
   ;; making whitespace end at newlines is for interactive parsing
   ;; where we end at a blank line
@@ -593,12 +595,12 @@
     (values start-pos end-pos eof?))
   (case in-mode
     ;; 'initial mode is right after `@` without immediate `{`, and we
-    ;; may transition from 'initial mode to 'brackets mode at `[`
-    [(initial brackets)
+    ;; may transition from 'initial mode to 'args mode at `(`
+    [(initial args)
      ;; recur to parse in shrubbery mode:
      (define-values (t type paren start end backup sub-status pending-backup)
        (recur (in-at-shrubbery-status status)))
-     ;; to keep the term and possibly exit 'initial or 'brackets mode:
+     ;; to keep the term and possibly exit 'initial or 'args mode:
      (define (ok status)
        (define-values (next-status pending-backup)
          (cond
@@ -613,9 +615,9 @@
               [else
                (values
                 (cond
-                  [(and (not (eq? in-mode 'brackets))
-                        (eqv? #\[ (peek-char in)))
-                   (in-at 'brackets (in-at-comment? status) #t #f sub-status '())]
+                  [(and (not (eq? in-mode 'args))
+                        (eqv? #\( (peek-char in)))
+                   (in-at 'args (in-at-comment? status) #t #f sub-status '())]
                   [(in-escaped? sub-status)
                    (in-escaped-at-status sub-status)]
                   [else sub-status])
@@ -964,14 +966,16 @@
                  #:text-mode? [text-mode? #f]
                  #:keep-type? [keep-type? #f]
                  #:source [source (object-name in)]
-                 #:interactive? [interactive? #f])
+                 #:interactive? [interactive? #f]
+                 #:consume-eof? [consume-eof? #f])
   (define status (if text-mode?
                      (make-in-text-status)
                      'initial))
   (parameterize ([current-lexer-source source])
-    (let loop ([status status] [depth 0] [blanks 0] [multi? #f])
+    (let loop ([status status] [depth 0] [blanks 0] [nonempty? #f] [multi? #f])
       (cond
-        [(eof-object? (peek-char in))
+        [(and (not consume-eof?)
+              (eof-object? (peek-char in)))
          ;; don't consume an EOF
          '()]
         [else
@@ -986,18 +990,17 @@
            [(EOF) '()]
            [(fail) (fail tok "read error")]
            [(whitespace)
-            (define a (wrap tok))
             (define newline? (let* ([s (syntax-e (token-value tok))]
                                     [len (string-length s)])
                                (and (positive? len)
                                     (eqv? #\newline (string-ref s (sub1 len))))))
             (cond
-              [(and interactive? newline? (zero? depth)
+              [(and interactive? newline? (zero? depth) nonempty?
                     (blanks . >= . (if multi? 1 0))
                     (not (lex-nested-status? status)))
                (list (wrap tok))]
               [else (cons (wrap tok)
-                          (loop new-status depth (+ blanks (if newline? 1 0)) multi?))])]
+                          (loop new-status depth (+ blanks (if newline? 1 0)) nonempty? multi?))])]
            [else
             (define a (case name
                         [(s-exp)
@@ -1011,6 +1014,9 @@
                               [(closer) (sub1 depth)]
                               [else depth])
                             0
+                            (case name
+                              [(comment) nonempty?]
+                              [else #t])
                             (case name
                               [(block-operator semicolon-operator)
                                (or multi?
@@ -1041,12 +1047,13 @@
                                                1)))
          (fail bad "expected only whitespace or `}` after S-expression")])))
   (define result
-    (syntax->token (if (identifier? v) 'identifier 'literal)
-                   (syntax-raw-property v
-                                        (format "#{~s}" (syntax->datum v)))
-                   (let ([loc (token-srcloc open-tok)])
+    (let ([new-loc (let ([loc (token-srcloc open-tok)])
                      (struct-copy srcloc loc
-                                  [span (- end-pos (srcloc-position loc))]))))
+                                  [span (- end-pos (srcloc-position loc))]))])
+      (syntax->token (if (identifier? v) 'identifier 'literal)
+                     (syntax-raw-property (datum->syntax v (syntax-e v) new-loc v)
+                                          (format "#{~s}" (syntax->datum v)))
+                     new-loc)))
   (when (pair? (syntax-e v))
     (fail result "S-expression in `#{` and `}` must not be a pair"))
   result)

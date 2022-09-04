@@ -3,7 +3,7 @@
     "util.rhm" open
     "common.rhm" open)
 
-@title[~tag: "list"]{Lists}
+@title(~tag: "list"){Lists}
 
 A @litchar{[}...@litchar{]} form as an expression creates a list:
 
@@ -12,19 +12,19 @@ A @litchar{[}...@litchar{]} form as an expression creates a list:
     [0, "apple", Posn(1, 2)] // prints [0, "apple", Posn(1, 2)]
   )
 
-You can also use the @rhombus[List] constructor, which takes any number of
+You can also use the @rhombus(List) constructor, which takes any number of
 arguments:
 
 @(rhombusblock:
     List(1, 2, 3)  // prints [1, 2, 3]
   )
 
-A list is a ``linked list,'' in the sense that getting the _n_th element
+A list is a ``linked list,'' in the sense that getting the @math{n}th element
 takes @math{O(n)} time, and adding to the front takes constant time. A
 list is immutable.
 
-@rhombus[List, ~ann] works as an annotation with @rhombus[-:, ~bind] and
-@rhombus[::, ~bind]:
+@rhombus(List, ~ann) works as an annotation with @rhombus(-:, ~bind) and
+@rhombus(::, ~bind):
 
 @(rhombusblock:
     fun
@@ -38,7 +38,7 @@ list is immutable.
   )
 
 As pattern, @litchar{[}...@litchar{]} matches a list, and list elements
-can be matched with specific subpatterns. The @rhombus[List, ~bind] binding
+can be matched with specific subpatterns. The @rhombus(List, ~bind) binding
 operator works the same in bindings, too.
 
 @(rhombusblock:
@@ -50,43 +50,43 @@ operator works the same in bindings, too.
   )
 
 The last element in a @litchar{[}...@litchar{]} binding pattern can be
-@rhombus[...], which means zero or more repetitions of the preceding
-pattern, and each variable bound by the preceding pattern is instead
-bound to a list of matches.
+@rhombus(...), which means zero or more repetitions of the preceding
+pattern.
+
+@(rhombusblock:
+    fun
+    | starts_milk([]): #false
+    | starts_milk([head, tail, ...]): head == "milk"
+
+    starts_milk([])                             // prints #false
+    starts_milk(["milk", "apple", "banana"])    // prints #true
+    starts_milk(["apple", "coffee", "banana"])  // prints #false
+  )
+
+Each variable in a pattern preceding @rhombus(...) is bound as a
+@tech{repetition}, which cannot be used like a plain variable.
+Instead, a repetition variable must be used in an expression form that
+supports using repetitions, typically with before @rhombus(...). For
+example, a @litchar{[}...@litchar{]} or @rhombus(List) expression (as
+opposed to binding) supports @rhombus(...) in place of a last element,
+in which case the preceding element form is treated as a repetition
+that supplies the tail of the new list.
 
 @(rhombusblock:
     fun
     | got_milk([]): #false
     | got_milk([head, tail, ...]):
-       head == "milk" || got_milk(tail)
+       head == "milk" || got_milk([tail, ...])
 
     got_milk([])                             // prints #false
     got_milk(["apple", "milk", "banana"])    // prints #true
     got_milk(["apple", "coffee", "banana"])  // prints #false
   )
 
-A use of @litchar{[}...@litchar{]} or @rhombus[List] for an expression
-also supports @rhombus[...] in place of a last argument, in which case
-the preceding argument is treated as a list that is the tail of the new
-list.
-
-@(rhombusblock:
-    [1, 2, [3, 4], ...]  // prints [1, 2, 3, 4]
-
-    fun
-    | is_sorted([]): #true
-    | is_sorted([head]): #true
-    | is_sorted([head, next, tail, ...]):
-       head <= next && is_sorted([next, tail, ...])
-
-    is_sorted([1, 2, 3, 3, 5]) // prints #true
-    is_sorted([1, 2, 9, 3, 5]) // prints #false
-  )
-
-When @litchar{[}...@litchar{]}appears after an expression, then instead
+When @litchar{[}...@litchar{]} appears after an expression, then instead
 of forming a list, it accesses an element of an @tech{map} value.
 Lists are maps that are indexed by natural numbers starting with
-@rhombus[0]:
+@rhombus(0):
 
 @(rhombusblock:
     val groceries: ["apple", "banana", "milk"]
@@ -96,20 +96,20 @@ Lists are maps that are indexed by natural numbers starting with
   )
 
 Indexing with @litchar{[}...@litchar{]} is sensitive to binding-based
-static information in the same way as @rhombus[.] For example, a
+static information in the same way as @rhombus(.). For example, a
 function’s argument can use a binding pattern that indicates a list of
-@rhombus[Posn]s, and then @rhombus[.] can be used after
+@rhombus(Posn)s, and then @rhombus(.) can be used after
 @litchar{[}...@litchar{]} to efficiently access a field of a
-@rhombus[Posn] instance:
+@rhombus(Posn) instance:
 
 @(rhombusblock:
-    fun nth_x([ps -: Posn, ...], n):
-      ps[n].x
+    fun nth_x([p -: Posn, ...], n):
+      [p, ...][n].x
 
     nth_x([Posn(1, 2), Posn(3, 4), Posn(5, 6)], 1) // prints 3
   )
 
-An equivalent way to write @rhombus[nth_x] is with the @rhombus[List.of]
+An equivalent way to write @rhombus(nth_x) is with the @rhombus(List.of, ~ann)
 annotation constructor. It expects an annotation that every element of
 the list must satisfy:
 
@@ -118,13 +118,23 @@ the list must satisfy:
       ps[n].x
   )
 
-The @rhombus[nth_x] function could have been written as follows, but
-unlike the previous versions, this one creates an intermediate list
-@rhombus[xs]:
+The @rhombus(nth_x) function could have been written as follows, but
+unlike the previous versions (where the relevant list existed as an
+argument), this one creates a new intermediate list of @rhombus(x)
+elements:
 
 @(rhombusblock:
-    fun nth_x([Posn(xs, _), ...], n):
-      xs[n]
+    fun nth_x([Posn(x, _), ...], n):
+      [x, ...][n]
 
     nth_x([Posn(1, 2), Posn(3, 4), Posn(5, 6)], 1) // prints 3
+  )
+
+Operations on lists include functions like @rhombus(List.length), and
+some of those operations can be applied using @rhombus(.) directly on
+an expression that produces a list.
+
+@(rhombusblock:
+   List.length(["a", "b", "c"])  // prints 3
+   ["a", "b", "c"].length()      // prints 3
   )

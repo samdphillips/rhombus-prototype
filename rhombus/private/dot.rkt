@@ -13,13 +13,12 @@
          "racket-class.rkt"
          "realm.rkt")
 
-(provide |.|
-         use_static_dot
-         use_dynamic_dot)
+(provide |.|)
 
 (module+ for-dot-provider
   (begin-for-syntax
     (provide (property-out dot-provider)
+             (property-out dot-provider-more-static)
              
              in-dot-provider-space
 
@@ -28,8 +27,15 @@
            #%dot-provider
            prop:field-name->accessor))
 
+(module+ for-builtin
+  (provide set-builtin->accessor-ref!))
+
+(module+ for-dynamic-static
+  (provide (for-syntax make-|.|)))
+
 (begin-for-syntax
   (property dot-provider (handler))
+  (property dot-provider-more-static dot-provider ())
 
   (define in-dot-provider-space (make-interned-syntax-introducer 'rhombus/dot-provider))
 
@@ -45,7 +51,7 @@
     (pattern (~var ref-id (:static-info #'#%dot-provider))
              #:attr id #'ref-id.val)))
 
-(define-for-syntax (make-|.| strict?)
+(define-for-syntax (make-|.| more-static?)
   (expression-infix-operator
    (quote-syntax |.|)
    '((default . stronger))
@@ -54,9 +60,9 @@
      (syntax-parse tail
        [(dot::operator field:identifier . tail)
         (define (generic)
-          (if strict?
+          (if more-static?
               (raise-syntax-error #f
-                                  "strict operator not supported for left-hand side"
+                                  "static operator not supported for left-hand side"
                                   #'dot.name
                                   #f
                                   (list form1))
@@ -70,10 +76,15 @@
         (syntax-parse form1
           [dp::dot-provider
            (define p (syntax-local-value* (in-dot-provider-space #'dp.id) dot-provider-ref))
-           (define e ((dot-provider-handler p) form1 #'dot #'field))
-           (if e
-               (values e #'tail)
-               (generic))]
+           (if (dot-provider-more-static? p)
+               ((dot-provider-handler p) form1 #'dot #'field
+                                         #'tail
+                                         more-static?
+                                         values generic)
+               (let ([e ((dot-provider-handler p) form1 #'dot #'field)])
+                 (if e
+                     (values e #'tail)
+                     (generic))))]
           [_ (generic)])]
        [(dot::operator other . tail)
         (raise-syntax-error #f
@@ -84,16 +95,6 @@
    'left))
 
 (define-syntax |.| (make-|.| #f))
-
-(define-syntaxes (use_static_dot use_dynamic_dot)
-  (let ([mk (lambda (strict?)
-              (definition-transformer
-                (lambda (stx)
-                  (syntax-parse stx
-                    [(form-id)
-                     #`((define-syntax #,(datum->syntax #'form-id '|.|) (make-|.| #,strict?)))]))))])
-    (values (mk #t)
-            (mk #f))))
 
 (define-syntax (define-dot-provider-syntax stx)
   (syntax-parse stx
@@ -110,19 +111,24 @@
                                  (values name
                                          (make-struct-field-accessor gen-acc i name))))))
 
-(define (dot-lookup-by-name subj field fun? . args)
-  (define ht (field-name->accessor-ref subj #f))
+;; To tie a loop with built-in data structures:
+(define builtin->accessor-ref (lambda (v) #f))
+(define (set-builtin->accessor-ref! proc) (set! builtin->accessor-ref proc))
+
+(define (dot-lookup-by-name v field fun? . args)
+  (define ht (or (field-name->accessor-ref v #f)
+                 (builtin->accessor-ref v)))
   (define (fail)
     (raise-arguments-error* field
                             rhombus-realm
                             "no such field"
-                            "in value" subj))
+                            "in value" v))
   (cond
-    [(object? subj) (object-dot-lookup subj field fun? args fail)]
+    [(object? v) (object-dot-lookup v field fun? args fail)]
     [(not ht) (fail)]
     [(hash-ref ht field #f)
      => (lambda (acc)
-          (define val (acc subj))
+          (define val (acc v))
           (if fun? (apply val args) val))]
     [else (fail)]))
 

@@ -3,23 +3,49 @@
                      syntax/parse
                      "pack.rkt")
          syntax/parse
+         syntax/strip-context
          racket/syntax-srcloc
          shrubbery/property
          "expression.rkt"
+         (submod "annotation.rkt" for-class)
          "pack.rkt"
-         "realm.rkt")
+         "realm.rkt"
+         "name-root.rkt"
+         "tag.rkt"
+         "dot-parse.rkt"
+         (submod "dot.rkt" for-dot-provider))
 
-(provide literal_syntax
-         literal_group_syntax
-         to_syntax
-         to_alts_syntax
-         unwrap_syntax
-         relocate_syntax
-         relocate_span_syntax)
+(provide Syntax
+         (for-space rhombus/annotation Syntax))
 
-(define-syntax literal_syntax
+(module+ for-builtin
+  (provide syntax-method-table))
+
+(module+ for-quasiquote
+  (provide (for-syntax syntax-static-infos)))
+
+(define-for-syntax syntax-static-infos
+  #'((#%dot-provider syntax-instance)))
+
+(define-annotation-syntax Syntax
+  (identifier-annotation #'Syntax #'syntax? syntax-static-infos))
+
+(define-simple-name-root Syntax
+  literal
+  literal_group
+  make
+  make_group
+  make_sequence
+  unwrap
+  unwrap_group
+  unwrap_sequence
+  strip
+  relocate
+  relocate_span)
+
+(define-syntax literal
   (expression-transformer
-   #'literal_syntax
+   #'Syntax.literal
    (lambda (stx)
      (syntax-parse stx
        #:datum-literals (parens quotes group)
@@ -27,16 +53,16 @@
         ;; Note: discarding group properties in this case
         (values #'(quote-syntax term) #'tail)]
        [(_ (~and ((~or parens quotes) . _) gs) . tail)
-        (values #`(quote-syntax #,(pack-multi #'gs)) #'tail)]))))
+        (values #`(quote-syntax #,(pack-tagged-multi #'gs)) #'tail)]))))
 
-(define-syntax literal_group_syntax
+(define-syntax literal_group
   (expression-transformer
-   #'literal_syntax
+   #'Syntax.literal_group
    (lambda (stx)
      (syntax-parse stx
        #:datum-literals (parens quotes group)
        [(_ ((~or parens quotes)) . tail)
-        (values #`(quote-syntax #,(pack-multi '(any))) #'tail)]
+        (values #`(quote-syntax #,(pack-multi '())) #'tail)]
        [(_ ((~or parens quotes) g) . tail)
         (values #'(quote-syntax g) #'tail)]))))
 
@@ -53,32 +79,145 @@
     [(op o) #'o]
     [_ ctx-stx-in]))
 
-(define (to_syntax v)
-  (datum->syntax #f v))
+(define (do-make who v tail? group?)
+  ;; assume that any syntax objects are well-formed, while list structure
+  ;; needs to be validated
+  (define (invalid)
+    (raise-arguments-error* 'Syntax.make rhombus-realm
+                            (if group?
+                                "invalid as a shrubbery group representation"
+                                (if tail?
+                                    "invalid as a shrubbery term representation"
+                                    "invalid as a shrubbery non-tail term representation"))
+                            "value" v))
+  (define (group-loop l)
+    (for/list ([e (in-list l)])
+      (group e)))
+  (define (group e)
+    (cond
+      [(and (pair? e)
+            (list? e))
+       (define head-stx (car e))
+       (define head (if (syntax? head-stx) (syntax-e head-stx) head-stx))
+       (if (eq? head 'group)
+           (cons head-stx
+                 (let l-loop ([es (cdr e)])
+                   (cond
+                     [(null? es) null]
+                     [else
+                      (define ds (cdr es))
+                      (cons (loop (car es) (null? ds))
+                            (l-loop ds))])))
+           (invalid))]
+      [(syntax? e)
+       (or (unpack-group e #f #f)
+           (invalid))]
+      [else (invalid)]))
+  (define (loop v tail?)
+    (cond
+      [(null? v) (invalid)]
+      [(list? v)
+       (define head-stx (car v))
+       (define head (if (syntax? head-stx) (syntax-e head-stx) head-stx))
+       (case head
+         [(parens brackets braces quotes)
+          (cons head-stx (group-loop (cdr v)))]
+         [(block)
+          (if tail?
+              (cons head-stx (group-loop (cdr v)))
+              (invalid))]
+         [(alts)
+          (if tail?
+              (cons head-stx
+                    (for/list ([e (in-list (cdr v))])
+                      (cond
+                        [(and (pair? e)
+                              (list? e))
+                         (define head-stx (car e))
+                         (define head (if (syntax? head-stx) (syntax-e head-stx) head-stx))
+                         (if (eq? head 'block)
+                             (loop e #t)
+                             (invalid))]
+                        [(syntax? e)
+                         (define u (unpack-term e #f #f))
+                         (define d (and u (syntax-e u)))
+                         (or (and d
+                                  (eq? 'block (syntax-e (car d)))
+                                  u)
+                             (invalid))]
+                        [else (invalid)])))
+              (invalid))]
+         [(op)
+          (if (and (pair? (cdr v))
+                   (null? (cddr v))
+                   (let ([op (cadr v)])
+                     (or (symbol? op)
+                         (identifier? op))))
+              v
+              (invalid))]
+         [else (invalid)])]
+      [(pair? v) (invalid)]
+      [(syntax? v) (or (unpack-term v #f #f)
+                       (invalid))]
+      [else v]))
+  (datum->syntax #f (if group? (group v) (loop v tail?))))
 
-(define (to_alts_syntax blocks)
-  (let ([blocks (map (lambda (block)
-                       (and (syntax? block)
-                            (let ([block (repack-as-term block)])
-                              (syntax-parse block
-                                #:datum-literals (block)
-                                [(block . _) block]
-                                [else #f]))))
-                     blocks)])
-    (unless (andmap values blocks)
-      (raise-argument-error* 'unwrap_syntax rhombus-realm "List.of(BlockSyntax)" blocks))
-    (datum->syntax #f (cons 'alts blocks))))
+(define (make v)
+  (do-make 'Syntax.make v #t #f))
 
-(define (unwrap_syntax v)
+(define (make_group v)
+  (unless (and (pair? v)
+               (list? v))
+    (raise-argument-error* 'Syntax.make_group rhombus-realm "NonEmptyList" v))
+  (datum->syntax #f (cons group-tag (let loop ([es v])
+                                      (cond
+                                        [(null? es) null]
+                                        [else
+                                         (define ds (cdr es))
+                                         (cons (do-make 'Syntax.make_group (car es) (null? ds) #f)
+                                               (loop ds))])))))
+
+(define (make_sequence v)
+  (unless (list? v) (raise-argument-error* 'Syntax.make_sequence rhombus-realm "List" v))
+  (pack-multi (for/list ([e (in-list v)])
+                (do-make 'Syntax.make_sequence e #t #t))))
+
+(define (unwrap v)
   (cond
     [(not (syntax? v))
-     (raise-argument-error* 'unwrap_syntax rhombus-realm "Syntax" v)]
+     (raise-argument-error* 'Syntax.unwrap rhombus-realm "Syntax" v)]
     [else
-     (syntax-e (unpack-term v 'unwrap_syntax))]))
+     (define unpacked (unpack-term v 'Syntax.unwrap #f))
+     (define u (syntax-e unpacked))
+     (if (and (pair? u)
+              (not (list? u)))
+         (syntax->list unpacked)
+         u)]))
 
-(define (relocate_syntax stx ctx-stx-in)
-  (unless (syntax? stx) (raise-argument-error* 'relocate_syntax rhombus-realm "Syntax" stx))
-  (unless (syntax? ctx-stx-in) (raise-argument-error* 'relocate_syntax rhombus-realm "Syntax" ctx-stx-in))
+(define (unwrap_group v)
+  (cond
+    [(not (syntax? v))
+     (raise-argument-error* 'Syntax.unwrap_group rhombus-realm "Syntax" v)]
+    [else
+     (syntax->list (unpack-tail v 'Syntax.unwrap_group #f))]))
+
+(define (unwrap_sequence v)
+  (cond
+    [(not (syntax? v))
+     (raise-argument-error* 'Syntax.unwrap_sequence rhombus-realm "Syntax" v)]
+    [else
+     (syntax->list (unpack-multi-tail v 'Syntax.unwrap_sequence #f))]))
+
+(define (strip v)
+  (cond
+    [(not (syntax? v))
+     (raise-argument-error* 'Syntax.strip rhombus-realm "Syntax" v)]
+    [else
+     (strip-context v)]))
+
+(define (relocate stx ctx-stx-in)
+  (unless (syntax? stx) (raise-argument-error* 'Syntax.relocate rhombus-realm "Syntax" stx))
+  (unless (syntax? ctx-stx-in) (raise-argument-error* 'Syntax.relocate rhombus-realm "Syntax" ctx-stx-in))
   (define ctx-stx (relevant-source-syntax ctx-stx-in))
   #;(log-error "?? ~s" (syntax->datum stx))
   #;(log-error " : ~s" (syntax->datum ctx-stx-in))
@@ -101,9 +240,15 @@
       [_
        (relocate stx)])))
 
-(define (relocate_span_syntax stx ctx-stxes-in
-                              #:keep_raw_interior [keep-raw-interior? #f])
-  (unless (syntax? stx) (raise-argument-error* 'relocate_span_syntax rhombus-realm "Syntax" stx))
+(define relocate_method
+  (lambda (stx)
+    (let ([relocate (lambda (ctx-stx)
+                      (relocate stx ctx-stx))])
+      relocate)))
+
+(define (relocate_span stx ctx-stxes-in
+                       #:keep_raw_interior [keep-raw-interior? #f])
+  (unless (syntax? stx) (raise-argument-error* 'Syntax.relocate_span rhombus-realm "Syntax" stx))
   (define ctx-stxes (map relevant-source-syntax ctx-stxes-in))
   (define (combine-raw a b) (if (null? a) b (if (null? b) a (cons a b))))
   (let loop ([ctx-stxes (cdr ctx-stxes)]
@@ -130,7 +275,7 @@
               [ctx (if (null? suffix)
                        ctx
                        (syntax-raw-suffix-property ctx suffix))])
-         (relocate_syntax stx ctx))]
+         (relocate stx ctx))]
       [(and (pair? (cdr ctx-stxes))
             (not keep-raw-interior?))
        (loop (cdr ctx-stxes) pre raw suffix)]
@@ -171,3 +316,29 @@
                            (or (syntax-raw-tail-suffix-property ctx) null)
                            (or (syntax-raw-suffix-property ctx) null))))])))
 
+(define relocate_span_method
+  (lambda (stx)
+    (let ([relocate_span (lambda (ctx-stxes)
+                      (relocate_span stx ctx-stxes))])
+      relocate_span)))
+
+(define syntax-method-table
+  (hash 'unwrap (method1 unwrap)
+        'unwrap_group (method1 unwrap_group)
+        'unwrap_sequence (method1 unwrap_sequence)
+        'strip (method1 strip)
+        'relocate relocate_method
+        'relocate_span relocate_span_method))
+
+(define-syntax syntax-instance
+  (dot-provider-more-static
+   (dot-parse-dispatch
+    (lambda (field-sym ary 0ary nary fail-k)
+      (case field-sym
+        [(unwrap) (0ary #'unwrap)]
+        [(unwrap_group) (0ary #'unwrap_group)]
+        [(unwrap_sequence) (0ary #'unwrap_sequence)]
+        [(strip) (0ary #'strip)]
+        [(relocate) (nary #'relocate_method 1 #'relocate)]
+        [(relocate_span) (nary #'relocate_span_method 1 #'relocate_span)]
+        [else (fail-k)])))))
