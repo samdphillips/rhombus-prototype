@@ -1629,6 +1629,8 @@ then @{8}
 @apple{one}{two}
 @banana(0){three}{four}{five}
 @coconut{six} {seven}
+@donut+eight{nine}
+@and{@eggplant. ten{eleven}}
 
 @none{}
 @«5»(3){yohoo @9(a, b, c){
@@ -1667,6 +1669,20 @@ then @{8}
 @elem{@a()@b()}
 @elem{@a{}@b()}
 
+@(«alpha beta»)(gamma){delta}
+@(«alpha beta»){delta}
+@(«alpha beta»)
+
+@same x @group
+@same @group
+@same(1) x @group(2)
+@same(1) @group(2)
+
+tail @«in: content»
+tail @(«in: content»)
+tail @«| then | else»
+tail @(«| then | else»)
+
 The end
 INPUT
   )
@@ -1688,6 +1704,11 @@ INPUT
                           (group (brackets (group "five")))))
     (group coconut (parens (group (brackets (group "six"))))
            (braces (group seven)))
+    (group donut (op +) eight (parens (group (brackets (group "nine")))))
+    (group and (parens (group (brackets
+                               (group eggplant)
+                               (group ". ten{eleven}")))))
+    
     (group none (parens (group (brackets))))
     (group
      5
@@ -1719,7 +1740,7 @@ INPUT
        (brackets (group "  2") (group "\n") (group "1") (group "\n") (group "  ") (group "4") (group "\n") (group " ") (group "5  ")))))
     (group
      (parens
-      (group (brackets (group "4 ") (group "\n") (group "5 ") (group "  6")))))
+      (group (brackets (group "4 ") (group "\n") (group "5 ") (group "6")))))
     (group
      itemlist
      (parens
@@ -1751,6 +1772,17 @@ INPUT
        (brackets
         (group a (parens (group (brackets))))
         (group b (parens))))))
+    (group alpha beta (parens (group gamma)) (braces (group delta)))
+    (group alpha beta (braces (group delta)))
+    (group alpha beta)
+    (group same x group)
+    (group same group)
+    (group same (parens (group 1)) x group (parens (group 2)))
+    (group same (parens (group 1)) group (parens (group 2)))
+    (group tail in (block (group content)))
+    (group tail in (block (group content)))
+    (group tail (alts (block (group then)) (block (group else))))
+    (group tail (alts (block (group then)) (block (group else))))
     (group The end)))
 
 (define input4

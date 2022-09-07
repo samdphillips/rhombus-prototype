@@ -219,9 +219,14 @@
 (define (read-line-comment name lexeme input-port start-pos
                            #:status [status 'initial]
                            #:consume-newline? [consume-newline? #f]
+                           #:plus-leading-whitespace? [plus-leading-whitespace? #f]
                            #:pending-backup [pending-backup 0])
-  (let ([comment (apply string (append (string->list lexeme) (read-line/skip-over-specials input-port
-                                                                                           consume-newline?)))])
+  (let ([comment (apply string (append (string->list lexeme)
+                                       (read-line/skip-over-specials input-port
+                                                                     consume-newline?)
+                                       (if plus-leading-whitespace?
+                                           (read-leading-whitespace input-port)
+                                           '())))])
     (define-values (end-line end-col end-offset) (port-next-location input-port))
     (values (make-token name comment start-pos (position end-offset end-line end-col))
             'comment #f 
@@ -276,6 +281,17 @@
        (if (char? next)
            (cons next (loop))
            (loop))])))
+
+(define (read-leading-whitespace i)
+  (let loop ()
+    (define next (peek-char-or-special i))
+    (cond
+      [(and (char? next)
+            (char-whitespace? next))
+       (cons (read-char-or-special i)
+             (loop))]
+      [else
+       null])))
 
 (struct s-exp-mode (depth status in-quotes) #:prefab)
 (struct in-at (mode comment? closeable? opener shrubbery-status openers) #:prefab)
@@ -489,7 +505,7 @@
           (let ([status (in-at 'open #t #t opener 'initial '())])
             (ret 'at-comment lexeme 'comment (string->symbol lexeme) start-pos end-pos status #:pending-backup 1))
           ;; all characters up to an opener-deciding character are part of the comment, so pending-backup = 1
-          (read-line-comment 'at-comment lexeme input-port start-pos #:pending-backup 1)))]
+          (read-line-comment 'at-comment lexeme input-port start-pos #:pending-backup 1 #:plus-leading-whitespace? #t)))]
    ["@"
     (let-values ([(opener pending-backup) (peek-at-opener* input-port)])
       (define mode (if opener 'open 'initial))
@@ -594,9 +610,12 @@
     (define end-pos (next-location-as-pos in))
     (values start-pos end-pos eof?))
   (case in-mode
-    ;; 'initial mode is right after `@` without immediate `{`, and we
-    ;; may transition from 'initial mode to 'args mode at `(`
-    [(initial args)
+    ;; 'initial mode is right after `@` without immediate `{`, or after
+    ;;   an identifier--operator sequence right after `@`
+    ;; 'args is after 'initial where next is `(`;
+    ;; 'op-continue is after 'initial of identifier where next is an operator
+    ;;    then identifier, and the next step will be back to 'initial
+    [(initial args no-args op-continue)
      ;; recur to parse in shrubbery mode:
      (define-values (t type paren start end backup sub-status pending-backup)
        (recur (in-at-shrubbery-status status)))
@@ -606,17 +625,33 @@
          (cond
            [(and (not (s-exp-mode? sub-status))
                  (null? (in-at-openers status)))
-            ;; either `{`, `[`, or back to shrubbery mode
-            (define-values (opener pending-backup) (peek-at-opener* in))
+            ;; either `{`, `(`, `[`, or back to shrubbery mode
+            (define-values (opener pending-backup) (if (eq? in-mode 'no-args)
+                                                       (values #f 0)
+                                                       (peek-at-opener* in)))
+            (define (still-in-at mode [opener #f])
+              (in-at mode (in-at-comment? status) #t opener sub-status '()))
             (cond
               [opener
-               (values (in-at 'open (in-at-comment? status) #t opener sub-status '())
+               (values (still-in-at 'open opener)
                        1)]
               [else
                (values
                 (cond
+                  [(and (eq? in-mode 'initial)
+                        (eq? (token-name t) 'identifier)
+                        (peek-operator+identifier? in))
+                   (still-in-at 'op-continue)]
+                  [(eq? in-mode 'op-continue)
+                   (still-in-at 'initial)]
                   [(and (not (eq? in-mode 'args))
-                        (eqv? #\( (peek-char in)))
+                        (not (eq? in-mode 'no-args))
+                        ;; recognize `[]` like `()` args for
+                        ;; a kind of consistency with S-expression @,
+                        ;; but the parser will reject `[]`
+                        (let ([ch (peek-char in)])
+                          (or (eqv? #\( ch)
+                              (eqv? #\[ ch))))
                    (in-at 'args (in-at-comment? status) #t #f sub-status '())]
                   [(in-escaped? sub-status)
                    (in-escaped-at-status sub-status)]
@@ -635,6 +670,12 @@
                                 [shrubbery-status sub-status])])
        (case (and (token? t) (token-name t))
          [(opener s-exp) (ok (struct-copy in-at status
+                                          [mode (if (and (eq? in-mode 'initial)
+                                                         (equal? (in-at-openers status) '("("))
+                                                         (eq? 'opener (token-name t))
+                                                         (equal? (token-e t) "«"))
+                                                    'no-args
+                                                    in-mode)]
                                           [openers (cons (if (eq? 's-exp (token-name t))
                                                              "{"
                                                              (token-e t))
@@ -730,6 +771,7 @@
                 (read-line-comment 'comment (string-append opener "@" slashes) in start-pos
                                    #:status (struct-copy in-at status [mode 'inside])
                                    #:consume-newline? #t
+                                   #:plus-leading-whitespace? #t
                                    #:pending-backup 1)]))]
        [else
         (define-values (next-opener pending-backup) (peek-at-opener* in))
@@ -894,7 +936,13 @@
 
 (define operator-lexer
   (lexer
-   [operator ((string-length lexeme) . > . 1)]
+   [operator (string-length lexeme)]
+   [(eof) #f]
+   [any-char #f]))
+
+(define identifier-lexer
+  (lexer
+   [identifier #t]
    [(eof) #f]
    [any-char #f]))
 
@@ -902,7 +950,7 @@
   (call-with-peeking-port
    input-port
    (lambda (p)
-     (operator-lexer p))))
+     ((operator-lexer p) . > . 1))))
 
 (define (maybe-consume-trailing-dot input-port lexeme end-pos)
   (define ch (peek-char input-port))
@@ -920,6 +968,14 @@
                                                 (and c (add1 c)))]))
         (values #t new-lexeme new-end-pos 1)])]
     [else (values #f lexeme end-pos 0)]))
+
+(define (peek-operator+identifier? input-port)
+  (call-with-peeking-port
+   input-port
+   (lambda (p)
+     ;; to intervening whitespace allowed
+     (and (operator-lexer p)
+          (identifier-lexer p)))))
 
 (struct token (name value))
 (struct located-token token (srcloc))

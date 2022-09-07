@@ -36,6 +36,7 @@
         "private/operator.rkt"
         "private/annotation.rkt"
         "private/list.rkt"
+        "private/pair.rkt"
         "private/array.rkt"
         "private/map.rkt"
         "private/set.rkt"
@@ -90,7 +91,8 @@
        (raise-syntax-error #f "ill-formed body" stx))
      #`(#%module-begin
         (module configure-runtime racket/base (require rhombus/runtime-config))
-        (#%declare #:realm rhombus)
+        (#%declare #:realm rhombus
+                   #:require=define)
         (rhombus-forwarding-sequence
          #:module #f #f
          (rhombus-top . content)))]))
