@@ -1,0 +1,22 @@
+#lang rhombus/static
+
+import:
+  lib("json/exp.rkt") ! #{for-extension} as rkt_json:
+    rename #{read-json*} as read
+
+export:
+  read
+
+fun read(in :: Port.Input):
+  rkt_json.read("json.read",
+                in,
+                #'null,
+                String.snapshot,
+                PairList.to_list,
+                String.snapshot)
+
+#//
+block:
+  Closeable.let o = Port.Input.open_file("/Users/sphillips/projects/contrib/racket/json-samples/generated-202411.json")
+  def t :~ List = read(o)
+  t[200]
