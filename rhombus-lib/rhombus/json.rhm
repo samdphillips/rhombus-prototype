@@ -2,17 +2,36 @@
 
 import:
   lib("racket/base.rkt") only #{make-immutable-hashalw}
-  lib("json/exp.rkt") ! #{for-extension} as rkt_json:
+  lib("json/main.rkt") ! #{for-extension} as rkt_json:
     rename #{read-json*} as read
+    rename #{write-json*} as write
 
 export:
+  write
   read
 
+fun write(v,
+          out :: Port.Output):
+  rkt_json.write(#'#{json.write},
+                 v,
+                 out,
+                 ~encode: #'control,
+                 ~indent: #false,
+                 ~null: #'null,
+                 #{#:object-rep?}: (_ is_a Map),
+                 #{#:object-rep->hash}: values,
+                 #{#:list-rep?}: (_ is_a List),
+                 #{#:list-rep->list}: fun (vs): PairList(&vs),
+                 #{#:key-rep?}: (_ is_a String),
+                 #{#:key-rep->string}: values,
+                 #{#:string-rep?}: (_ is_a String),
+                 #{#:string-rep->string}: values)
+
 fun read(in :: Port.Input):
-  rkt_json.read("json.read",
+  rkt_json.read(#'#{json.read},
                 in,
-                #'null,
-                base.#{make-immutable-hashalw},
-                PairList.to_list,
-                String.snapshot,
-                String.snapshot)
+                ~null: #'null,
+                #{#:make-object}: base.#{make-immutable-hashalw},
+                #{#:make-list}: PairList.to_list,
+                #{#:make-key}: String.snapshot,
+                #{#:make-string}: String.snapshot)
