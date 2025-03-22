@@ -56,6 +56,7 @@ fun read(in :: Port.Input):
   rkt_json.read(#'#{json.read},
                 in,
                 ~null: #'null,
+                #{#:replace-malformed-surrogate?}: #false,
                 #{#:make-object}: base.#{make-immutable-hashalw},
                 #{#:make-list}: PairList.to_list,
                 #{#:make-key}: String.snapshot,

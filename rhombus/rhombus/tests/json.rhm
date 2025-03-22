@@ -1,0 +1,9 @@
+#lang rhombus
+import:
+  rhombus/json
+
+block:
+  Closeable.let in = Port.Input.open_string("{} [] \"a string\"")
+  check json.read(in) ~is Map()
+  check json.read(in) ~is List()
+  check json.read(in) ~is "a string"
