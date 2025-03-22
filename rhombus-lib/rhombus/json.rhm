@@ -7,14 +7,14 @@ import:
     rename #{write-json*} as write
 
 export:
-  JSExpr
+  JSON
   write
   read
 
 
-fun is_jsexpr(v, ~shallow: shallow = #true):
+fun is_json(v, ~shallow: shallow = #true):
   fun rec(v):
-    is_jsexpr(v, ~shallow: #false)
+    is_json(v, ~shallow: #false)
   match v
   | _ :: (Int && Exact) || (Real && Inexact && Rational): #true
   | _ :: String: #true
@@ -30,11 +30,11 @@ fun is_jsexpr(v, ~shallow: shallow = #true):
 
 
 annot.macro
-| 'JSExpr.deep': 'satisfying(is_jsexpr(_, ~shallow: #false))'
-| 'JSExpr': 'satisfying(is_jsexpr)'
+| 'JSON.deep': 'satisfying(is_json(_, ~shallow: #false))'
+| 'JSON': 'satisfying(is_json)'
 
 
-fun write(v :: JSExpr.deep,
+fun write(v :: JSON.deep,
           out :: Port.Output):
   rkt_json.write(#'#{json.write},
                  v,
