@@ -14,6 +14,7 @@ export:
   to_string
   from_string
 
+def known_json = WeakMutableMap.by(===)()
 
 fun is_json(v):
   match v
@@ -22,10 +23,20 @@ fun is_json(v):
   | _ :: Boolean: #true
   | #'null: #true
   | vs :: List:
-      for all (v: vs): is_json(v)
+      cond
+      | vs in known_json: #true
+      | (for all (v: vs): is_json(v)):
+          known_json[vs] := #true
+          #true
+      | ~else: #false
   | m :: Map:
-      for all (values(k, v): m):
-        k is_a String && is_json(v)
+      cond
+      | m in known_json: #true
+      | (for all (values(k, v): m):
+           k is_a String && is_json(v)):
+          known_json[m] := #true
+          #true
+      | ~else: #false
   | _: #false
 
 
