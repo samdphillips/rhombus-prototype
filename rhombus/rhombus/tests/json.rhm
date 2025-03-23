@@ -1,9 +1,15 @@
-#lang rhombus
+#lang rhombus/static/and_meta
 import:
   rhombus/json
 
+expr.macro 'json_in([$(s :: String)])': 'json.from_string($s)'
+
 block:
-  Closeable.let in = Port.Input.open_string("{} [] \"a string\"")
-  check json.read(in) ~is Map()
-  check json.read(in) ~is List()
-  check json.read(in) ~is "a string"
+  check @json_in{ {} } ~is Map()
+  check @json_in{ [] } ~is List()
+  check @json_in{ "a string" } ~is "a string"
+  check @json_in{ 1234 } ~is 1234
+  check @json_in{ 12.34 } ~is 12.34
+
+block:
+  check json.to_string(Map()) ~is "{}"

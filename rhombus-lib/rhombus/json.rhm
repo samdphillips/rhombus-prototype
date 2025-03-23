@@ -11,30 +11,28 @@ export:
   write
   read
 
+  to_string
+  from_string
 
-fun is_json(v, ~shallow: shallow = #true):
-  fun rec(v):
-    is_json(v, ~shallow: #false)
+
+fun is_json(v):
   match v
   | _ :: (Int && Exact) || (Real && Inexact && Rational): #true
   | _ :: String: #true
   | _ :: Boolean: #true
   | #'null: #true
   | vs :: List:
-      shallow || for all (v: vs): rec(v)
+      for all (v: vs): is_json(v)
   | m :: Map:
-      shallow
-        || for all (values(k, v): m):
-          k is_a String && rec(v)
+      for all (values(k, v): m):
+        k is_a String && is_json(v)
   | _: #false
 
 
-annot.macro
-| 'JSON.deep': 'satisfying(is_json(_, ~shallow: #false))'
-| 'JSON': 'satisfying(is_json)'
+annot.macro 'JSON': 'satisfying(is_json)'
 
 
-fun write(v :: JSON.deep,
+fun write(v :: JSON,
           out :: Port.Output):
   rkt_json.write(#'#{json.write},
                  v,
@@ -52,7 +50,13 @@ fun write(v :: JSON.deep,
                  #{#:string-rep->string}: values)
 
 
-fun read(in :: Port.Input):
+fun to_string(v :: JSON) :: String:
+  Closeable.let out = Port.Output.open_string()
+  write(v, out)
+  out.get_string()
+
+
+fun read(in :: Port.Input) :: JSON:
   rkt_json.read(#'#{json.read},
                 in,
                 ~null: #'null,
@@ -61,3 +65,8 @@ fun read(in :: Port.Input):
                 #{#:make-list}: PairList.to_list,
                 #{#:make-key}: String.snapshot,
                 #{#:make-string}: String.snapshot)
+
+
+fun from_string(s :: ReadableString) :: JSON:
+  Closeable.let in = Port.Input.open_string(s)
+  read(in)
