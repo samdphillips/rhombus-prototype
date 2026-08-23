@@ -139,6 +139,7 @@ def args :~ Map:
       | state[S.leftover_args] := [arg, ...]
 
 cmdline.current_command_line(args[S.leftover_args])
+rkt.#{current-command-line-arguments}(Array(& args[S.leftover_args]))
 when S.program in args
 | cmdline.current_program(args[S.program])
 
