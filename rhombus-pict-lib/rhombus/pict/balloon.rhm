@@ -102,7 +102,8 @@ fun pin(content :: Pict,
                                  ~#{line-width}: outline_width)
             Pict.from_handle(build([p.handle, content.handle]),
                              [p, content],
-                             build)
+                             fun ([p, content]):
+                               retry_balloon([p, content], at, epoch, n))
     | [p :~ Pict, content :~ Pict]:
         let (p, content, at):
           match time
