@@ -220,6 +220,7 @@ unless
 unquote_bind
 unquote_bind_meta
 use_dynamic
+use_site_scopes
 use_static
 values
 veneer
