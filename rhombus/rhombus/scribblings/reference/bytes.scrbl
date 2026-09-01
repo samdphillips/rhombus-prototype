@@ -328,8 +328,8 @@ like @rhombus(<) and @rhombus(>) work on byte strings.
 }
 
 @doc(
-  method Bytes.to_list(str :: Bytes) :: List.of(Char)
-  fun Bytes.from_list(lst :: List.of(Char)) :: Bytes
+  method Bytes.to_list(str :: Bytes) :: List.of(Byte)
+  fun Bytes.from_list(lst :: List.of(Byte)) :: Bytes
 ){
 
  Converts a byte string to or from a list of bytes.
